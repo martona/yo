@@ -1,0 +1,54 @@
+yo
+Copyright (C) 2026 martona
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License version 3, as published
+by the Free Software Foundation. See the LICENSE file for the full text.
+
+
+DERIVATIVE-WORK NOTICE
+======================
+
+`yo` is a derivative work of yoshell ("yosh"):
+
+    yoshell — https://github.com/pizlonator/yosh
+    Copyright (C) the yoshell authors (pizlonator and contributors)
+    Licensed under the GNU General Public License v3.
+
+yoshell is itself a fork of GNU Bash 5.2.32 and GNU Readline 8.2.13
+(Copyright (C) the Free Software Foundation), both GPLv3, with an added
+LLM "yo" feature implemented in `readline-8.2.13/yo.c`.
+
+`yo` does NOT copy or fork the Bash/Readline C codebase. What it reuses
+from yoshell — and what makes it a derivative work — is the design and
+expression of that "yo" feature:
+
+  * the command name `yo`;
+  * the LLM system prompts and tool/response descriptions (reused
+    largely verbatim);
+  * the response/tool-calling contract (the `command` / `chat` /
+    `scrollback` / `docs` tools) and the multi-step continuation
+    protocol.
+
+Because that reused material is GPLv3-licensed expression, `yo` is
+distributed under the GPLv3 as well.
+
+
+SIGNIFICANT CHANGES FROM THE ORIGINAL (GPLv3 section 5)
+======================================================
+
+`yo` re-expresses yoshell's "yo" feature as a standalone tool, not a
+shell. Notable differences from yoshell:
+
+  * Standalone native binary, invoked as `yo <text>`, rather than a fork
+    of GNU Bash / Readline.
+  * Shell integration via small per-shell snippets (bash / zsh /
+    PowerShell) that drive each shell's own line editor, instead of a
+    patched GNU Readline.
+  * Terminal scrollback obtained from a terminal multiplexer
+    (tmux / zellij), opt-in, instead of yoshell's PTY-proxy capture.
+  * Memory safety provided by the implementation language, instead of
+    yoshell's Fil-C build.
+
+See docs/DESIGN-NOTES.md for the full rationale and the mapping between
+yoshell's mechanisms and yo's.
