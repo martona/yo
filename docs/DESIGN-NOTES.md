@@ -26,7 +26,11 @@ A native binary inverts this: the entire brain is written **once** and cross-com
 
 ### The cost of native
 
-Native moves the cost from *duplicated runtime logic* (unbounded, ongoing) to *one-time build/distribution plumbing* (finite, solved): cross-compilation, three binary sets, macOS Gatekeeper signing, Windows SmartScreen flagging of unsigned exes, and an install story (`brew`, `cargo install`, release downloads, `winget`/`scoop`). All well-trodden — Atuin solves the identical set. The finite problem is the better one to own.
+Native moves the cost from *duplicated runtime logic* (unbounded, ongoing) to *one-time build/distribution plumbing* (finite, solved): cross-compilation, three binary sets, macOS Gatekeeper signing, Windows SmartScreen flagging of unsigned exes, and an install story (`go install`, release downloads, `winget`/`scoop` on Windows, `brew` on macOS). All well-trodden — Atuin solves the identical set. The finite problem is the better one to own.
+
+### Language: Go
+
+Decision: **Go.** A single statically-linked binary with trivial cross-compilation (`GOOS=windows/darwin/linux`; a pure-Go build needs no C toolchain), a standard library that covers the whole brain (`net/http`, `crypto/tls`, `encoding/json` — none of the `jq`/`curl` fights a shell would impose), fast compiles, and garbage-collected memory safety that recovers the spirit of yoshell's Fil-C build at zero cost. Atuin (a native binary doing exactly this kind of per-shell integration) is the architectural proof point — we copy its *patterns*, not its language.
 
 ---
 
@@ -44,7 +48,7 @@ yoshell is a ~50k-line fork of GNU Bash 5.2.32 + Readline 8.2.13. Split its valu
 | --- | --- |
 | Readline prefill (required the bash fork) | Per-shell integration snippets |
 | PTY-proxy scrollback capture | tmux / zellij screen capture (opt-in) |
-| Fil-C memory-safe build | Rust/Go memory-safe by construction |
+| Fil-C memory-safe build | Go (garbage-collected, memory-safe) |
 
 The base system prompt is injected in `bash-5.2.32/bashline.c`; the rest lives in `yo.c`. The single biggest finding from reading it: **yoshell does not parse a JSON blob out of text at all — it uses native tool/function calling.** That reframes most of the prompt-handling questions and is promoted to its own decision below.
 
@@ -81,7 +85,7 @@ Decision: **the model never returns a JSON object we parse out of prose. It call
 - **The command arrives as a typed argument** (`input.command`), already extracted and schema-validated by the API. The entire class of "wrapped in backticks / appended an explanation / hedged with *you could try…*" failures cannot occur, because the model is filling a schema slot, not writing a string we descrape.
 - **Forcing tool use** removes the other half: the model cannot leak free-form prose onto your command line, because it is not permitted to answer except through a tool.
 
-This is fully available to a standalone binary — `tools` + `tool_choice` are just fields in the request body, identical from Rust/Go as from a forked shell. We adopt it wholesale. Detailed schemas, the per-provider prompt asymmetry, and the residual failure modes yoshell still had to patch are in [Resolved: prompt handling](#resolved-prompt-handling-studied-from-yoshell).
+This is fully available to a standalone binary — `tools` + `tool_choice` are just fields in the request body, identical from Go as from a forked shell. We adopt it wholesale. Detailed schemas, the per-provider prompt asymmetry, and the residual failure modes yoshell still had to patch are in [Resolved: prompt handling](#resolved-prompt-handling-studied-from-yoshell).
 
 ---
 
@@ -130,6 +134,7 @@ Design choices:
 - Scrollback is **strictly optional, not a cornerstone.** With a multiplexer present → rich clean context on all three platforms. Without one → fall back to no-scrollback (just the `yo` prompt + session memory), which works everywhere.
 - This is what keeps Windows from being second-class: the feature that's genuinely hard on native Windows (tmux is WSL-only there; zellij runs but is less battle-tested) is exactly the one we made optional.
 - v1 implementation: shell out. Detect `$TMUX` / `$ZELLIJ`, run the capture command, read stdout. (Control protocols are more robust but more work — defer.)
+- On **Windows** (our first target) tmux isn't available; the native scrollback source is PowerShell `Start-Transcript` (tail the transcript file) or the Win32 console buffer (`ReadConsoleOutput`). Deferred past the first runnable version.
 - Capture depth (`-1000`) configurable, probably default smaller.
 
 ### Secret redaction — a clean, separable, bolted-on layer
@@ -148,12 +153,12 @@ Defense-in-depth, not perfection — say so in the docs.
 
 ## v1 scope
 
-- **Targets:** native binary on macOS / Linux / Windows.
-- **Shells:** bash + zsh + PowerShell.
-- **Providers:** Anthropic + OpenAI, mirroring yoshell's key surfaces (`~/.anthropickey` / `~/.openaikey` / `~/.yoconf`-style config) as a convention.
+- **Targets:** native binary on Windows / macOS / Linux — **Windows first** (see [implementation plan](#implementation-plan)).
+- **Shells:** **PowerShell first**, then bash + zsh.
+- **Providers:** **Anthropic first**, then OpenAI; mirroring yoshell's key surfaces (`~/.anthropickey` / `~/.openaikey` / `~/.yoconf`-style config) as a convention.
 - **Core loop:** `yo <text>` → API → parse → prefill.
-- **Session memory:** in-process / per-session conversation context with a token budget.
-- **Scrollback:** opt-in via tmux/zellij detection; graceful no-op fallback.
+- **Session memory:** per-session conversation context with a token budget — but persisted *across invocations* in a per-session state file, since the binary is short-lived (unlike yoshell's in-process history). Stateless in the first runnable version.
+- **Scrollback:** opt-in; tmux/zellij where present, a Windows-native source (transcript / console buffer) on Windows; graceful no-op fallback.
 - **Secret redaction:** out of scope for v1; designed as a later separable layer.
 
 ---
@@ -257,15 +262,49 @@ The earlier worry that continuation needs a "tighter integration loop we don't h
 
 For the no-multiplexer path (where there's no output to continue against anyway, so continuation is already degraded), the per-shell capture hooks in the table — `preexec`, the `DEBUG` trap, PSReadLine history — still hand us the exact command directly, so the suggested-vs-executed diff survives even without scrollback if we want it. And it's a nicety regardless: if the scrollback already echoes the command, the model infers the edit on its own; worst case it simply works from the output. Low stakes.
 
-**Decision for `yo`:** implement continuation as the per-shell triple above, mirroring yoshell's state machine (prefill → on execute, mark executed + arm the startup hook → capture scrollback → `[continuation]` call → repeat until `pending:false`). Recover the executed command primarily from the scrollback capture, with the shell's `preexec`/history hook as the no-multiplexer fallback. Build and prove the **bash** loop end-to-end first to de-risk, then port to zsh and PowerShell.
+**Decision for `yo`:** implement continuation as the per-shell triple above, mirroring yoshell's state machine (prefill → on execute, mark executed + arm the startup hook → capture scrollback → `[continuation]` call → repeat until `pending:false`). Recover the executed command primarily from the scrollback capture, with the shell's `preexec`/history hook as the no-multiplexer fallback. Build and prove the loop on **PowerShell** first (our first target — see [implementation plan](#implementation-plan)), then port to bash and zsh.
 
 ---
 
-## Things to decide next
+## Implementation plan
 
-- **Licensing (settled — see [License & provenance](#license--provenance)):** ~~add the GPLv3 `LICENSE` and a `NOTICE` crediting `pizlonator/yosh`~~ **done** (`LICENSE` is byte-identical to upstream's GPLv3; `NOTICE` records the derivative-work relationship + the §5 change summary). Still to do: add the derivative-work + GPLv3 line to the README once one exists, and a per-file SPDX header (`SPDX-License-Identifier: GPL-3.0-or-later`) when code lands.
-- ~~Resolve the prompt-handling open questions.~~ **Done** (above). What's left is porting and wiring, not open design:
-  - Port yoshell's two system prompts **verbatim** (minimal for Anthropic, worked-example-heavy for OpenAI-style), then iterate from a known-good baseline.
-  - Carry its tool definitions (`command` / `chat` / `scrollback` / `docs`) with forced `tool_choice`, plus the explanation-retry and single-tool-call guards.
-- Skeleton: core loop (assemble request → API → tool-call dispatch → prefill/print) + bash/zsh/PowerShell integration snippets (prefill + startup hook + executed-command capture) + multiplexer-detect-and-capture.
-- Continuation: build the bash loop first, end-to-end, before adding shell breadth.
+### First runnable version (v0.1) — Windows + PowerShell, Anthropic
+
+**Goal:** typing `yo <text>` at a PowerShell prompt returns either a command **prefilled on the next line** (editable; runs on Enter) or a printed answer. Single-shot — no scrollback, continuation, or memory yet. The smallest thing that proves the concept end to end.
+
+**Deferred, to keep v0.1 small:** scrollback, multi-step continuation, session memory, the `scrollback`/`docs` tools, extra providers, other shells/OSes, signing/distribution, secret redaction.
+
+Milestones (M0 and M1 are independent; M0 is the long pole — start it first):
+
+- **M0 — PowerShell prefill spike (the #1 unknown).** Before any API work, prove we can place text on the *next* prompt's edit buffer from a function that has already returned. yoshell gets this free inside readline (`rl_startup_hook`); PowerShell offers no clean "set next line" hook, and `[Microsoft.PowerShell.PSConsoleReadLine]::Insert()` only works while the editor loop is live. Candidates, in order:
+  1. a `Register-EngineEvent PowerShell.OnIdle` handler that injects pending text on the next idle — *verify it reaches the live edit buffer*; keeps the `yo <text>`⏎ UX;
+  2. a `Set-PSReadLineKeyHandler` chord (how Atuin/PSFzf inject text — proven), trading the pure-command UX for a keypress;
+  3. fallback: print + copy to clipboard (degraded).
+  *Deliverable:* a stub puts `Get-ChildItem -Recurse` on the next prompt, editable. If neither (1) nor (2) works acceptably, that reshapes the UX — better to learn it now than after building the brain.
+
+- **M1 — Go binary (testable with no shell).**
+  - CLI `yo <text...>` (join args; also read stdin).
+  - Config read on each call: `~/.yoconf` (provider/model/key/base_url) + key-file fallback (`~/.anthropickey`); home via `os.UserHomeDir()` (→ `%USERPROFILE%`). The Unix `0600` permission check is skipped on Windows.
+  - Anthropic Messages client (`net/http` + `encoding/json`): port yoshell's **minimal Anthropic base prompt verbatim**; define the `command` + `chat` tools; `tool_choice:{"type":"any"}`; POST; parse the returned `tool_use`.
+  - Binary↔snippet contract: one JSON line on **stdout** — `{"type":"command",…}` / `{"type":"chat",…}` / `{"type":"error",…}`; **stderr** carries only the transient "thinking…" indicator, so captured stdout stays clean.
+  - *Deliverable:* `yo.exe "list files over 100MB"` prints the JSON — fully testable without PowerShell.
+
+- **M2 — Wire the snippet to the binary.** `function yo { $r = & yo.exe @args | ConvertFrom-Json; … }` — `command` → print `explanation`, prefill `$r.command` via M0; `chat` → `Write-Host $r.response`; `error` → red `Write-Host`. Install by adding the snippet to `$PROFILE`.
+
+- **M3 — Polish to "runnable."** Thinking indicator during the call; friendly errors (missing key / network / API) with no prefill; Ctrl-C cancels the in-flight request; sane defaults (model, `max_tokens`).
+
+**Done when:** on a clean Windows box — drop in the binary, add the profile snippet, write `~/.anthropickey` — `yo find every pdf modified this week` prefills a working `Get-ChildItem` one-liner you can run with Enter.
+
+### After v0.1 (rough order)
+
+1. **Scrollback (Windows-native).** No tmux on Windows; source the screen via `Start-Transcript` (tail the file) or the Win32 console buffer (`ReadConsoleOutput`). Wire up the `scrollback` tool → unlocks "why did that fail?".
+2. **Session memory + state.** The binary is short-lived, so memory can't be in-process (yoshell's model) — persist a per-session history file keyed by a `YO_SESSION` id the snippet sets. Also the prerequisite for continuation.
+3. **Multi-step continuation.** The `pending` loop: a `prompt`-function hook fires the next call, captures the executed command + output, threads the `[continuation]` message. Needs 1 + 2.
+4. **`docs` tool** (embed help) and a **second provider** (OpenAI Responses, with the worked-example tuned prompt).
+5. **Breadth:** bash + zsh snippets; macOS + Linux builds (where tmux/zellij scrollback "just works").
+6. **Distribution & hardening:** winget/scoop, code signing, secret redaction.
+
+### Housekeeping (carry-over)
+
+- README (when one exists): one line stating `yo` is a GPLv3 derivative of `pizlonator/yosh`.
+- Add `SPDX-License-Identifier: GPL-3.0-or-later` headers once code lands.
