@@ -14,9 +14,13 @@
 # that command's exit code, prefilling each in turn. Type a new 'yo ...' to
 # cancel a sequence in progress.
 #
-# Note: you are typing a real PowerShell command line, so quote any request that
-# contains shell metacharacters (| > < & ; etc.):
-#     yo 'what does | do in powershell'
+# You can type shell metacharacters -- ( ) < > & ; | $ " and backtick -- directly
+# in a yo question; you do NOT need to quote them. An Enter-key hook (registered at
+# the bottom of this file) captures the raw line and single-quotes it before
+# PowerShell parses it. Example:
+#     yo what does (Get-Process | Where CPU > 50) do
+# Requires PSReadLine (pwsh 7+); without it, yo falls back to plain PowerShell
+# argument parsing and you must quote metacharacters yourself.
 
 # Decode yo.exe's UTF-8 stdout correctly (and render Unicode in chat replies).
 # PowerShell decodes a native command's output using [Console]::OutputEncoding,
@@ -160,3 +164,52 @@ function global:prompt {
 # (one-shot handlers that remove themselves after firing).
 Get-EventSubscriber -SourceIdentifier 'PowerShell.OnIdle' -ErrorAction SilentlyContinue |
     ForEach-Object { Unregister-Event -SubscriptionId $_.SubscriptionId -ErrorAction SilentlyContinue }
+
+# Raw-line capture (the readline hook): intercept Enter so a `yo <query>` line is
+# single-quoted BEFORE PowerShell parses it. This is the PowerShell analog of
+# yoshell's rl_yo_accept_line, which grabs the raw Readline buffer at accept time
+# (pre-parse). Pre-parse is the only correct point: metacharacters like ; | < >
+# act at parse time, so reading the line inside the `yo` function (via
+# $MyInvocation.Line) would be too late -- and unsafe, since `yo a; rm b` would
+# already have run `rm b` as its own statement.
+#
+# On every Enter:
+#   1. Read the raw edit buffer (pre-parse) via GetBufferState.
+#   2. Rewrite to  yo '<query>'  ONLY when ALL of:
+#        - the first token is exactly `yo` followed by a query; AND
+#        - the query does not start with `-` (so `yo --dry-run ...` and other
+#          debug-flag calls pass through to normal parsing); AND
+#        - the query is not already one single-quoted token (so a line recalled
+#          from history is not double-wrapped) -- i.e. the hook is idempotent.
+#      Embedded single quotes are escaped by doubling (' becomes ''). Inside a
+#      single-quoted string nothing else expands, so the query reaches the binary
+#      byte-for-byte, internal whitespace included.
+#   3. ALWAYS submit via ValidateAndAcceptLine -- the stock Enter binding -- so
+#      every non-yo line behaves exactly as before (including multi-line /
+#      incomplete-input handling, which ValidateAndAcceptLine performs itself).
+#
+# This takes over the Enter key globally, so source this file AFTER any module that
+# also rebinds Enter (last writer wins). Needs PSReadLine 2.x (pwsh 7+); if it is
+# absent the hook is skipped and `yo` falls back to plain argument parsing. The
+# rewrite is wrapped so any failure degrades to a plain accept -- never a stuck key.
+try {
+    Set-PSReadLineKeyHandler -Chord Enter -ScriptBlock {
+        param($key, $arg)
+        try {
+            $line = $null; $cursor = $null
+            [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
+            # (?s) lets . span a multi-line buffer; (?!-) skips debug-flag calls.
+            if ($line -match '(?s)^\s*yo\s+(?!-)(.+)$') {
+                $q = $Matches[1]
+                if ($q -notmatch "^'([^']|'')*'$") {   # not already one quoted token
+                    $esc = "'" + $q.Replace("'", "''") + "'"
+                    [Microsoft.PowerShell.PSConsoleReadLine]::Replace(0, $line.Length, "yo $esc")
+                }
+            }
+        } catch {}
+        try { [Microsoft.PowerShell.PSConsoleReadLine]::ValidateAndAcceptLine() }
+        catch { [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine() }
+    }
+} catch {
+    Write-Host "yo: Enter hook not installed ($($_.Exception.Message)); quote metacharacters in yo queries." -ForegroundColor DarkYellow
+}

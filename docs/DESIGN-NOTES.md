@@ -13,6 +13,7 @@ A standalone, cross-platform LLM-enabled command assistant. Type `yo <natural la
 - **Layout:** `cmd/yo/` (entry) + `internal/config` + `internal/llm` (a `Provider` interface with `anthropic.go` and `openai.go`). Build: `go build ./cmd/yo`. Tests live beside the code; `go test ./...` is green.
 - **Providers:** `anthropic` (Messages API) and `openai` (Responses API), selected via `provider` in `~/.yoconf` or inferred from which key env var (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) is set. See [`yoconf.example`](../yoconf.example).
 - **Shell integration:** `shell/yo.ps1` — the `yo` function, a one-shot OnIdle next-prompt prefill, and a wrapped `prompt` that drives multi-step. `.ps1` files are kept pure ASCII (PowerShell 5.1 chokes on smart punctuation), and the snippet forces `[Console]::OutputEncoding = UTF-8` so non-ASCII replies render. Key/config files are decoded tolerantly (UTF-8 / UTF-8-BOM / UTF-16), a Windows footgun.
+- **Raw-line capture:** a PSReadLine Enter hook single-quotes a `yo <query>` line before PowerShell parses it, so a question can contain `( ) < > & ; | $` without manual quoting; debug-flag calls (`yo --dry-run …`), already-quoted lines, and all non-`yo` input pass through untouched. Requires PSReadLine (pwsh 7+) with a guarded fallback. New — pending live verification on a pwsh 7+ console. See [Raw-line capture (PowerShell)](#raw-line-capture-powershell).
 - **Multi-step:** a `pending` command arms a continuation; after you run it, the next step is fetched (with its exit code) and prefilled — repeating until `pending:false`. Built and live-verified. See [Multi-step continuation (as built)](#multi-step-continuation-as-built).
 - **Known limitation:** on **Windows PowerShell 5.1**, the bundled PSReadLine 2.0 garbles the programmatic prefill (the command renders doubled) — confirmed not a double-fire on our side (a one-shot handler didn't fix it), so it's a 2.0 render bug. pwsh 7+ is clean; 5.1 needs `Install-Module PSReadLine` or pwsh 7+. To be handled by guided setup.
 - **Scrollback:** inside **zellij**, recent screen output is captured and folded into the query as context ("why did that fail?") — `zellij action dump-screen --full --path <file>`, ANSI-stripped, last 200 lines, no redaction yet (`internal/scrollback`). A clean no-op outside zellij.
@@ -134,6 +135,29 @@ Per-shell prefill mechanism (v1 targets):
 (fish `commandline -r`, nushell, elvish are post-v1 nice-to-haves.)
 
 Continuation (multi-step) rides the **same** integration surface and ports almost 1:1 from yoshell's in-readline loop. Beyond prefill, each line editor also exposes a *pre-prompt/startup hook* (to fire the next-step call when the prompt redraws) and a way to *capture the just-executed command* — the only two extra primitives the loop needs, and all three shells have them. The per-shell mapping and the one nuance (recovering the exact post-edit command) are in [Resolved: prompt handling](#resolved-prompt-handling-studied-from-yoshell), Q4.
+
+### Raw-line capture (PowerShell)
+
+By default `yo <text>` is a real PowerShell command line, so a question containing `( ) < > & ; | $` (and friends) would be mangled — or rejected — by the parser before the binary ever saw it. We lift that quoting burden with a **PSReadLine Enter-key hook** ([`shell/yo.ps1`](../shell/yo.ps1), bottom) that captures the raw edit buffer *before* PowerShell parses it and rewrites a `yo` line into a single safely-quoted argument. It is the direct analog of yoshell's `rl_yo_accept_line`, which grabs the raw Readline buffer at accept time (pre-parse). Accept-time is the **only** correct interception point: `;` `|` `<` `>` take effect at parse time, so reading the line *inside* the `yo` function (e.g. `$MyInvocation.Line`) is both too late and unsafe — `yo a; rm b` would already have run `rm b` as a second statement.
+
+**Algorithm, on every Enter press:**
+
+1. Read the raw buffer (`GetBufferState`) — no parsing has happened yet.
+2. Rewrite the buffer to `yo '<query>'` **only when all three hold**:
+   - the first token is exactly `yo` followed by a query (`^\s*yo\s+…`);
+   - the query does **not** start with `-` — so `yo --dry-run …` and other debug-flag calls pass straight through to normal argument parsing;
+   - the query is **not already** one well-formed single-quoted token — so a line recalled from history is left alone. The hook is **idempotent**.
+
+   The quoting is `'` + `query.Replace("'", "''")` + `'`. Inside a PowerShell single-quoted string nothing expands and the only escape is `''` → `'`, so this turns *any* text into one literal argument: `| ; & < >` are literal, `$x` / `$(…)` / `@(…)` do not expand, backtick is literal, `"` is literal. The query reaches the binary byte-for-byte, internal whitespace included.
+3. **Always** submit via `ValidateAndAcceptLine` (the stock Enter binding). Every non-`yo` line is therefore untouched and behaves exactly as before — including multi-line / incomplete-input handling (open brace → newline, not accept), which `ValidateAndAcceptLine` performs itself. A rewritten `yo` line is always balanced, so it accepts cleanly even when the user typed unbalanced `(` or quotes in the question.
+
+**History** stores the rewritten, quoted form (`yo 'what does (x|y) do'`), which is re-runnable; on re-accept the idempotency guard (step 2, third bullet) sees it is already quoted and passes it through unchanged.
+
+**Caveats — the shakier part, stated plainly:**
+
+- It **takes over the Enter key globally.** Source `yo.ps1` *after* any module that also rebinds Enter (last writer wins). The rewrite is wrapped in `try/catch` and the accept has its own fallback, so a failure degrades to a plain accept — it can never leave the Enter key stuck.
+- Requires **PSReadLine 2.x (pwsh 7+)** — the same dependency the prefill already has. If PSReadLine is absent the hook is skipped (with a one-line notice) and `yo` falls back to plain argument parsing: you quote metacharacters yourself.
+- A query that **genuinely starts with `-`** (e.g. `yo -h means what?`) is indistinguishable from a debug-flag call and passes through unquoted; quote it in that rare case. A future `yo :: <flags>` sentinel could separate the two cleanly.
 
 ### Scrollback context — opt-in, via multiplexer
 

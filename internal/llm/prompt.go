@@ -57,6 +57,11 @@ running something; use the chat tool only when no command is needed.
 If the user asks a question that has an obvious command as an answer, you
 must use the command tool; you can elaborate in the explanation field.
 
+Do not ask "want me to prefill that command"; just do it if it might be useful.
+
+Do not use markdown formatting in plain-text response blocks; the text you output
+will be rendered on a terminal.
+
 %s`, model, multiStep)
 }
 
@@ -75,6 +80,11 @@ bash or cmd.
 
 If the user asks a question that has an obvious command as an answer, you
 must use the command tool; you can elaborate in the explanation field.
+
+Do not ask "want me to prefill that command"; just do it if it might be useful.
+
+Do not use markdown formatting in plain-text response blocks; the text you output
+will be rendered on a terminal.
 
 When in doubt between the command and chat tools, ALWAYS choose command.
 Use chat ONLY for greetings/casual conversation or abstract conceptual
