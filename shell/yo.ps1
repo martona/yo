@@ -18,11 +18,11 @@ function yo {
            elseif (Get-Command yo.exe -ErrorAction SilentlyContinue) { 'yo.exe' }
            else { $null }
     if (-not $bin) {
-        Write-Host "yo: yo.exe not found — put it on PATH or set `$env:YO_BIN to its full path." -ForegroundColor Red
+        Write-Host "yo: yo.exe not found; put it on PATH or set `$env:YO_BIN to its full path." -ForegroundColor Red
         return
     }
 
-    # stdout carries one JSON line; stderr carries the transient "thinking…"
+    # stdout carries one JSON line; stderr carries the transient "thinking..."
     # indicator, which we let flow straight to the console.
     $json = & $bin @args
     if (-not $json) {
