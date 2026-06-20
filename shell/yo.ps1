@@ -53,6 +53,37 @@ function Set-YoPrefill([string]$cmd) {
     }
 }
 
+# Format-YoWrap word-wraps $text to the console width so the model's prose does not
+# break mid-word at the terminal edge. A word (a run of non-whitespace) moves whole
+# to the next line; a word longer than the width is hard-broken only because it
+# cannot fit otherwise. Newlines already in $text are preserved (paragraphs, lists
+# and blank lines survive); other whitespace within a line collapses to single
+# spaces. Falls back to width 80 when no console width is available.
+function Format-YoWrap([string]$text) {
+    if (-not $text) { return $text }
+    $width = 80
+    try { $w = [Console]::WindowWidth; if ($w -gt 1) { $width = $w } } catch {}
+
+    $out = [System.Collections.Generic.List[string]]::new()
+    foreach ($srcLine in ($text -split "`n")) {
+        $src = $srcLine.Trim()
+        if ($src.Length -eq 0) { $out.Add(''); continue }
+        $cur = ''
+        foreach ($word in ($src -split '\s+')) {
+            while ($word.Length -gt $width) {
+                if ($cur.Length) { $out.Add($cur); $cur = '' }
+                $out.Add($word.Substring(0, $width))
+                $word = $word.Substring($width)
+            }
+            if ($cur.Length -eq 0) { $cur = $word }
+            elseif (($cur.Length + 1 + $word.Length) -le $width) { $cur = "$cur $word" }
+            else { $out.Add($cur); $cur = $word }
+        }
+        if ($cur.Length) { $out.Add($cur) }
+    }
+    return ($out -join [Environment]::NewLine)
+}
+
 # Invoke-YoResult handles one yo.exe JSON result (shared by `yo` and the
 # continuation driver). It prints chat/explanations, stashes the command to
 # prefill (via Set-YoPrefill), carries the continuation blob in $env:YO_STATE, and
@@ -66,13 +97,13 @@ function Invoke-YoResult([string]$json) {
     try {
         $r = $json | ConvertFrom-Json
     } catch {
-        Write-Host "yo: could not parse response: $json" -ForegroundColor Red
+        Write-Host (Format-YoWrap "yo: could not parse response: $json") -ForegroundColor Red
         $env:YO_STATE = ''; $global:YoArmed = $false
         return
     }
     switch ($r.type) {
         'command' {
-            if ($r.explanation) { Write-Host $r.explanation -ForegroundColor DarkGray }
+            if ($r.explanation) { Write-Host (Format-YoWrap $r.explanation) -ForegroundColor DarkGray }
             Set-YoPrefill $r.command
             if ($r.pending) {
                 $env:YO_STATE = $r.state
@@ -83,11 +114,11 @@ function Invoke-YoResult([string]$json) {
             }
         }
         'chat' {
-            Write-Host $r.response
+            Write-Host (Format-YoWrap $r.response) -ForegroundColor DarkGray
             $env:YO_STATE = ''; $global:YoArmed = $false
         }
         'error' {
-            Write-Host "yo: $($r.message)" -ForegroundColor Red
+            Write-Host (Format-YoWrap "yo: $($r.message)") -ForegroundColor Red
             $env:YO_STATE = ''; $global:YoArmed = $false
         }
         default {
