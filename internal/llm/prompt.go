@@ -15,28 +15,28 @@ const (
 	toolCommand = "command"
 	toolChat    = "chat"
 
-	descCommand     = "Generate a PowerShell command for the user to review " +
-	                  "and execute. The command will be prefilled at the prompt " +
-					  "for the user to edit or run."
-	descCommandFld  = "The PowerShell command to execute"
-	descExplainFld  = "Brief explanation of what this command does, shown to " +
-					  "the user before the command"
-	descPendingFld  = "True if this is one step of a multi-step task and you " +
-	                  "need the user to run it before you give the next step; " +
-					  "false on the final step."
-	descChat        = "Respond with a text message for questions and explanations; " +
-	                  "use ONLY when no command is needed."
+	descCommand = "Generate a PowerShell command for the user to review " +
+		"and execute. The command will be prefilled at the prompt " +
+		"for the user to edit or run."
+	descCommandFld = "The PowerShell command to execute"
+	descExplainFld = "Brief explanation of what this command does, shown to " +
+		"the user before the command"
+	descPendingFld = "True if this is one step of a multi-step task and you " +
+		"need the user to run it before you give the next step; " +
+		"false on the final step."
+	descChat = "Respond with a text message for questions and explanations; " +
+		"use ONLY when no command is needed."
 	descChatFld     = "Your text response to the user"
 	descCommandBias = "CRITICAL: If you recommend any command, you MUST use the " +
-	                  "command tool, not chat. Keep commands to a single readable " +
-					  "pipeline; do not emit long here-strings or multi-line scripts."
+		"command tool, not chat. Keep commands to a single readable " +
+		"pipeline; do not emit long here-strings or multi-line scripts."
 
 	// multiStep guidance is appended to both system prompts.
 	multiStep = "MULTI-STEP: For a task that needs several commands in sequence, " +
-	            "issue ONE command at a time and set pending=true; after the user " +
-				"runs each, you will be told its exit code and can give the next " +
-				"step (set pending=false on the last). Do NOT chain steps together " +
-				"with && or ; -- one command per step."
+		"issue ONE command at a time and set pending=true; after the user " +
+		"runs each, you will be told its exit code and can give the next " +
+		"step (set pending=false on the last). Do NOT chain steps together " +
+		"with && or ; -- one command per step."
 )
 
 // anthropicSystemPrompt is intentionally minimal — Anthropic's tool descriptions
@@ -105,11 +105,27 @@ func WithTerminalContext(query, scrollback string) string {
 	if scrollback == "" {
 		return query
 	}
-	return fmt.Sprintf("[terminal context] Recent output from the user's " +
-	                   "terminal, most recent at the bottom. These are " +
-					   "COMPLETED commands from the PAST; any prompts shown " +
-					   "were already handled. Ignore stray escape-code " +
-					   "artifacts and focus on real output. This is general " +
-					   "terminal history, not necessarily about the request -- " +
-					   "use it only if it helps answer what follows.\n\n```\n%s\n```\n\n[request] %s", scrollback, query)
+	return fmt.Sprintf("[terminal context] Recent output from the user's "+
+		"terminal, most recent at the bottom. These are "+
+		"COMPLETED commands from the PAST; any prompts shown "+
+		"were already handled. Ignore stray escape-code "+
+		"artifacts and focus on real output. This is general "+
+		"terminal history, not necessarily about the request -- "+
+		"use it only if it helps answer what follows.\n\n```\n%s\n```\n\n[request] %s", scrollback, query)
+}
+
+// WithSessionMemory prepends a compact history of recent yo exchanges to the query,
+// framed as background continuity (what the user has been doing this session) so the
+// model uses it only to resolve references, not as the current ask. Returns the
+// query unchanged when history is empty. It is prepend-only (no [request] marker of
+// its own), so wrapping a WithTerminalContext result yields a single [request]:
+// history block, then terminal block, then the request.
+func WithSessionMemory(query, history string) string {
+	if history == "" {
+		return query
+	}
+	return fmt.Sprintf("[recent yo history] Your earlier exchanges with this user "+
+		"in the current shell session, oldest first. This is BACKGROUND for "+
+		"continuity only (e.g. resolving \"that file\" or \"the previous one\"); it "+
+		"is NOT the current request, which follows below.\n\n%s\n%s", history, query)
 }

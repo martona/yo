@@ -28,6 +28,13 @@
 # (e.g. emoji) arrives as mojibake. No-BOM UTF-8; guarded for restricted hosts.
 try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch {}
 
+# Session id for cross-call memory: a stable per-shell id (PID + random suffix so a
+# reused PID cannot inherit a closed shell's history). Set once; survives re-sourcing.
+# Clear it ($env:YO_SESSION = '') or set "memory false" in ~/.yoconf to disable memory.
+if (-not $env:YO_SESSION) {
+    $env:YO_SESSION = "$PID-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+}
+
 function Get-YoBin {
     if ($env:YO_BIN) { return $env:YO_BIN }
     if (Get-Command yo.exe -ErrorAction SilentlyContinue) { return 'yo.exe' }

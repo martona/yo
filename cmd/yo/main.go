@@ -24,6 +24,7 @@ import (
 	"github.com/martona/yo/internal/llm"
 	"github.com/martona/yo/internal/redact"
 	"github.com/martona/yo/internal/scrollback"
+	"github.com/martona/yo/internal/session"
 	"github.com/martona/yo/internal/textwrap"
 )
 
@@ -73,6 +74,7 @@ func main() {
 		emit(llm.Result{Type: "error", Message: "no query given (usage: yo <natural language>)"})
 		os.Exit(2)
 	}
+	rawQuery := query // the user's actual ask, before any context augmentation
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -88,6 +90,13 @@ func main() {
 	// Opportunistic terminal context (redacted): fold recent screen output into the
 	// query so "why did that fail?" works. No-op outside zellij.
 	query = withScrollback(query)
+
+	// Cross-call memory: prepend a compact history of recent yo exchanges (no-op when
+	// disabled or empty). Applied after scrollback so the framing nests to a single
+	// [request]. The exchange itself is recorded after we have a result, below.
+	if cfg.Memory {
+		query = llm.WithSessionMemory(query, session.Render(session.Recent(os.Getenv("YO_SESSION"))))
+	}
 
 	if *dryRun {
 		body, err := provider.Request(query)
@@ -111,12 +120,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	// A pending command opens a fresh continuation chain.
+	// A pending command opens a fresh continuation chain (stored under the RAW
+	// query, not the context-augmented one). A terminal result -- a chat or a
+	// non-pending command -- is instead recorded to session memory now.
 	if res.Type == "command" && res.Pending {
-		st := &llm.State{Query: query, Steps: []llm.Step{{Command: res.Command, Explanation: res.Explanation}}}
+		st := &llm.State{Query: rawQuery, Steps: []llm.Step{{Command: res.Command, Explanation: res.Explanation}}}
 		if enc, err := st.Encode(); err == nil {
 			res.State = enc
 		}
+	} else if cfg.Memory {
+		recordResult(rawQuery, res)
 	}
 	emit(res)
 }
@@ -187,7 +200,13 @@ func runContinue(exitCode int, dryRun bool) {
 			}
 		}
 	}
-	// chat, or a non-pending command, leaves res.State empty -> snippet clears YO_STATE.
+	// chat, or a non-pending command, leaves res.State empty -> snippet clears
+	// YO_STATE. That also ends the chain, so record the completed task to memory.
+	if cfg.Memory && !(res.Type == "command" && res.Pending) {
+		session.Append(os.Getenv("YO_SESSION"), session.Exchange{
+			Query: st.Query, Type: "command", Steps: st.Steps,
+		})
+	}
 	emit(res)
 }
 
@@ -229,6 +248,22 @@ func withScrollback(query string) string {
 	return llm.WithTerminalContext(query, res.Text)
 }
 
+// recordResult appends a terminal (non-pending) exchange -- a standalone command or
+// a chat -- to session memory. Callers gate on cfg.Memory; Append itself no-ops on an
+// empty session id or an unrecordable type.
+func recordResult(query string, res llm.Result) {
+	ex := session.Exchange{Query: query, Type: res.Type}
+	switch res.Type {
+	case "command":
+		ex.Steps = []llm.Step{{Command: res.Command, Explanation: res.Explanation}}
+	case "chat":
+		ex.Response = res.Response
+	default:
+		return
+	}
+	session.Append(os.Getenv("YO_SESSION"), ex)
+}
+
 // runCheck validates config and the API key without any network call.
 func runCheck() {
 	cfg, err := config.Load()
@@ -240,7 +275,11 @@ func runCheck() {
 		fmt.Fprintln(os.Stderr, "key error:", err)
 		os.Exit(1)
 	}
-	fmt.Printf("OK  provider=%s  model=%s  key=%d chars (decoded & valid)\n", cfg.Provider, cfg.Model, len(cfg.Key))
+	mem := "off"
+	if cfg.Memory {
+		mem = "on"
+	}
+	fmt.Printf("OK  provider=%s  model=%s  memory=%s  key=%d chars (decoded & valid)\n", cfg.Provider, cfg.Model, mem, len(cfg.Key))
 }
 
 // emit writes a Result as one JSON line to stdout. Errors are emitted in the

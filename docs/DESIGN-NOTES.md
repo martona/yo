@@ -17,7 +17,7 @@ A standalone, cross-platform LLM-enabled command assistant. Type `yo <natural la
 - **Multi-step:** a `pending` command arms a continuation; after you run it, the next step is fetched (with its exit code) and prefilled — repeating until `pending:false`. Built and live-verified. See [Multi-step continuation (as built)](#multi-step-continuation-as-built).
 - **Known limitation:** on **Windows PowerShell 5.1**, the bundled PSReadLine 2.0 garbles the programmatic prefill (the command renders doubled) — confirmed not a double-fire on our side (a one-shot handler didn't fix it), so it's a 2.0 render bug. pwsh 7+ is clean; 5.1 needs `Install-Module PSReadLine` or pwsh 7+. To be handled by guided setup.
 - **Scrollback:** inside **zellij**, recent screen output is captured and folded into the query as context ("why did that fail?") — `zellij action dump-screen --full --path <file>`, ANSI-stripped, last 200 lines, then secrets scrubbed before send (`internal/scrollback` + `internal/redact`). A clean no-op outside zellij.
-- **Output-fed continuation:** **done** — continuation steps now fold in scrollback the same way the initial query does (in zellij), so the model reacts to each step's real output, not just its exit code. **Secret redaction:** **done** too — outbound scrollback is scrubbed by gitleaks' engine (imported in-process, embedded ruleset) before send, on both paths (`internal/redact`). **Built next:** cross-call session memory.
+- **Output-fed continuation:** **done** — continuation steps now fold in scrollback the same way the initial query does (in zellij), so the model reacts to each step's real output, not just its exit code. **Secret redaction:** **done** too — outbound scrollback is scrubbed by gitleaks' engine (imported in-process, embedded ruleset) before send, on both paths (`internal/redact`). **Cross-call session memory:** **done** too — a per-session history of exchanges is folded into later queries (`internal/session`). **Built next:** an install/setup helper + README.
 
 ---
 
@@ -186,6 +186,18 @@ Design choices:
 Deliberately **defense-in-depth, not perfection**: gitleaks errs toward precision (it won't flag a lone AWS access-key id with no secret beside it), so a miss is possible — but that's the same exposure that predated redaction, whereas over-redaction (mangling the context we send the model) is the worse failure, so the precision lean is intentional.
 
 Future tiers (deferred): redact the user's query and the continuation command history (not just scrollback); env-var hygiene (whitelist, never serialize all of `env`); surface the exact post-redaction payload (`--dry-run` already prints the assembled request, now with redaction applied); and entropy / local-model stages if ever needed.
+
+### Session memory (as built)
+
+Cross-call continuity: independent `yo` invocations in the same shell session share a small history of prior exchanges, so "delete the top one" after "find the biggest logs" resolves. It is the durable companion to scrollback — scrollback is the raw screen (output, ephemeral, multiplexer-only), memory is the structured intent thread (no output), available everywhere, which is what matters for the non-zellij majority.
+
+**Storage.** A per-session JSON file under the OS temp dir (`internal/session`), keyed by a session id the snippet mints once (`$env:YO_SESSION = "<pid>-<nonce>"`; the nonce dodges PID reuse). Capped to the last 12 exchanges (plus a char budget); stale files are swept (>7 days) on a session's first write. This is yo's **first on-disk footprint** — continuation rode env vars, redaction is stateless. Default on; `memory false` in `~/.yoconf` or an empty `$env:YO_SESSION` disables it.
+
+**Record.** Per exchange: the raw query, plus either the chat answer or the command steps (offered + executed + exit). A multi-step task gets the full thread for free from the continuation `State` at chain end; a standalone command stores the *offered* command only (no follow-up call to learn what actually ran — a deferred enrichment). Written at terminal responses (chat / non-pending command) and at chain end; pending steps aren't written (they live in `$env:YO_STATE`).
+
+**Replay.** On the *initial* query only, a compact `[recent yo history]` block is folded in via `llm.WithSessionMemory`, framed as background-for-continuity and applied *after* scrollback so the two nest to a single `[request]`. `--continue` steps don't re-read it (they carry their own chain).
+
+**Not redacted, deliberately.** Everything stored has already gone to the LLM — your query; the model's own offered command/chat; for multi-step the executed command, which already rides offered-vs-executed — so memory adds no new LLM exposure, only disk persistence, bounded to an ephemeral per-session temp file with no command *output*. This holds *because* storage is temp-only and output-free; moving to persistent storage or storing output would put real secrets on disk and must revisit this.
 
 ---
 
@@ -362,7 +374,7 @@ Milestones (M0 and M1 are independent; M0 is the long pole — start it first):
 ### After v0.1 (rough order)
 
 1. ~~**Scrollback (Windows-native).**~~ **Done** — zellij only (`zellij action dump-screen --full --path <file>`), folded into the query as a context block (`internal/scrollback` + `llm.WithTerminalContext`), ANSI-stripped, last 200 lines. No `Start-Transcript`/console-buffer fallback yet. Now folded into continuation steps too (the `--continue` path), not just the initial query, and the captured text is redacted before send.
-2. **Session memory.** Remember exchanges across *independent* `yo` calls. The binary is short-lived, so this needs a persisted store (a per-session file or small DB). Note: continuation itself did NOT need this — it carries its own state in `$env:YO_STATE`; full session memory is the larger, longer-lived case.
+2. ~~**Session memory.**~~ **Done** — per-session JSON store (`internal/session`), capped + swept, folded into the initial query via `llm.WithSessionMemory`; default on (`memory false` or an empty `$env:YO_SESSION` disables). See [Session memory (as built)](#session-memory-as-built). Standalone commands store the offered command only (executed-capture for standalone deferred).
 3. ~~**Multi-step continuation.**~~ **Done** — exit-code feedback, env-var state; see [Multi-step continuation (as built)](#multi-step-continuation-as-built). **Output-fed continuation** — folding each step's scrollback into the `--continue` call — is now done too, as a one-liner on top of item 1.
 4. ~~**Second provider** (OpenAI Responses, with the worked-example tuned prompt).~~ **Done.** Next: **`docs` tool** (embed help so "how do I configure yo?" is answered from real docs, not guessed).
 5. **Breadth:** bash + zsh snippets; macOS + Linux builds (where tmux/zellij scrollback "just works"). Prose word-wrapping already lives in the binary (`internal/textwrap`, fed by `--width`), so a port just reports its width; only color stays per-snippet.

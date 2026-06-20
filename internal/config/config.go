@@ -21,6 +21,7 @@ type Config struct {
 	Model    string
 	Key      string
 	BaseURL  string
+	Memory   bool // cross-call session memory; default on, "memory false" in ~/.yoconf disables
 }
 
 // providerDefaults holds the per-provider model and the environment variable
@@ -46,6 +47,7 @@ var inferOrder = []string{"anthropic", "openai"}
 // (Ready) so that previews work without a key.
 func Load() (Config, error) {
 	var cfg Config
+	cfg.Memory = true // default on; ~/.yoconf "memory false" disables
 
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -176,6 +178,13 @@ func readYoconf(path string, cfg *Config) error {
 			cfg.Key = cleanKey(value)
 		case "base_url":
 			cfg.BaseURL = value
+		case "memory":
+			switch strings.ToLower(value) {
+			case "false", "0", "off", "no":
+				cfg.Memory = false
+			default:
+				cfg.Memory = true
+			}
 		}
 	}
 	return nil
