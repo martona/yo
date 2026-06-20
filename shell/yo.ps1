@@ -149,7 +149,12 @@ function Invoke-YoContinuation([bool]$ok) {
     $bin = Get-YoBin
     if (-not $bin) { return }
     $code = if ($ok) { 0 } else { 1 }
+    # Pass the command the user ACTUALLY ran (edits included) so the model can
+    # reconcile its suggestion against reality. Env var, not a flag, so the command's
+    # metacharacters need no escaping; inherited by the child like YO_STATE.
+    $env:YO_RAN = if ($h) { $h.CommandLine } else { '' }
     $json = & $bin --continue --exit $code --width (Get-YoWidth)   # inherits $env:YO_STATE
+    $env:YO_RAN = ''
     Invoke-YoResult $json
     if ($global:YoArmed) { $global:YoBaseline = $lastId }  # re-armed: fire on the next run
 }

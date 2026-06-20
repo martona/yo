@@ -63,3 +63,40 @@ func TestContinuationQuery(t *testing.T) {
 		}
 	}
 }
+
+func TestContinuationQueryShowsEdit(t *testing.T) {
+	s := &State{Query: "q", Steps: []Step{{Command: "npm install"}}}
+	s.SetLastExecuted("npm install --legacy-peer-deps")
+	s.SetLastExit(0)
+
+	// The edit must survive the state round-trip and surface in the prompt.
+	enc, err := s.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := DecodeState(enc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Steps[0].Executed != "npm install --legacy-peer-deps" {
+		t.Fatalf("Executed did not round-trip: %+v", got.Steps[0])
+	}
+	q := got.ContinuationQuery(0)
+	for _, want := range []string{"npm install --legacy-peer-deps", "you suggested: npm install"} {
+		if !strings.Contains(q, want) {
+			t.Errorf("continuation query missing %q:\n%s", want, q)
+		}
+	}
+}
+
+func TestSetLastExecutedEmptyAndNoEdit(t *testing.T) {
+	s := &State{Query: "q", Steps: []Step{{Command: "ls"}}}
+	s.SetLastExecuted("") // empty -> ignored, suggestion kept
+	if s.Steps[0].Executed != "" {
+		t.Fatalf("empty executed should be ignored, got %q", s.Steps[0].Executed)
+	}
+	s.SetLastExecuted("ls") // ran exactly what we suggested -> not shown as an edit
+	if q := s.ContinuationQuery(0); strings.Contains(q, "you suggested") {
+		t.Errorf("no-edit case should not render 'you suggested':\n%s", q)
+	}
+}

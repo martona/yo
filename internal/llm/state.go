@@ -18,6 +18,7 @@ type Step struct {
 	Command     string `json:"c"`
 	Explanation string `json:"e,omitempty"`
 	Exit        *int   `json:"x,omitempty"` // exit code, once the user has run it
+	Executed    string `json:"r,omitempty"` // what the user actually ran, if they edited the prefill
 }
 
 // State is the continuation context carried between yo invocations (base64 JSON
@@ -70,6 +71,18 @@ func (s *State) SetLastExit(code int) {
 	}
 }
 
+// SetLastExecuted records the command the user actually ran for the most recent
+// step, which may differ from what we suggested if they edited the prefill before
+// pressing Enter. Empty input is ignored (we keep the suggestion as-is).
+func (s *State) SetLastExecuted(cmd string) {
+	if cmd == "" {
+		return
+	}
+	if n := len(s.Steps); n > 0 {
+		s.Steps[n-1].Executed = cmd
+	}
+}
+
 // ContinuationQuery synthesizes the next user turn: the original request, the
 // steps run so far with exit codes, and instructions to emit the next command
 // (or finish). Plain text -> provider-agnostic.
@@ -79,7 +92,13 @@ func (s *State) ContinuationQuery(lastExit int) string {
 	fmt.Fprintf(&b, "Original request: %s\n\n", s.Query)
 	b.WriteString("Commands run so far (most recent last):\n")
 	for i, st := range s.Steps {
-		fmt.Fprintf(&b, "%d. %s", i+1, st.Command)
+		if st.Executed != "" && st.Executed != st.Command {
+			// The user edited the suggestion before running it; show both so the
+			// model re-plans against what actually ran, not what it proposed.
+			fmt.Fprintf(&b, "%d. %s   (you suggested: %s)", i+1, st.Executed, st.Command)
+		} else {
+			fmt.Fprintf(&b, "%d. %s", i+1, st.Command)
+		}
 		if st.Exit != nil {
 			fmt.Fprintf(&b, "   -> exit %d", *st.Exit)
 		}

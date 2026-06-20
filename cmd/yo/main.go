@@ -148,6 +148,7 @@ func runContinue(exitCode int, dryRun bool) {
 	}
 
 	st.SetLastExit(exitCode)
+	st.SetLastExecuted(os.Getenv("YO_RAN")) // the command the user actually ran (edits included)
 	query := st.ContinuationQuery(exitCode)
 
 	// Opportunistic terminal context (redacted): by the time --continue fires, the
