@@ -6,6 +6,17 @@ A standalone, cross-platform LLM-enabled command assistant. Type `yo <natural la
 
 ---
 
+## Status (2026-06-19)
+
+**v0.1 shipped and works on Windows + PowerShell.** `yo <text>` calls the LLM and prefills a PowerShell command on the next prompt (or prints a chat answer); live-verified on both Anthropic and OpenAI.
+
+- **Layout:** `cmd/yo/` (entry) + `internal/config` + `internal/llm` (a `Provider` interface with `anthropic.go` and `openai.go`). Build: `go build ./cmd/yo`. Tests live beside the code; `go test ./...` is green.
+- **Providers:** `anthropic` (Messages API) and `openai` (Responses API), selected via `provider` in `~/.yoconf` or inferred from which key file exists. See [`yoconf.example`](../yoconf.example).
+- **Shell integration:** `shell/yo.ps1` — the `yo` function plus OnIdle next-prompt prefill. `.ps1` files are kept pure ASCII (PowerShell 5.1 chokes on smart punctuation), and the snippet forces `[Console]::OutputEncoding = UTF-8` so non-ASCII replies render. Key/config files are decoded tolerantly (UTF-8 / UTF-8-BOM / UTF-16), a Windows footgun.
+- **Built next:** scrollback context, then session state + continuation (see implementation plan).
+
+---
+
 ## Core principle
 
 The tool is **invisible and zero-cost until explicitly summoned.** No LLM is involved unless you type `yo`. It is never ambient, never intercepting, never in the keypath until called. This is lifted from yoshell's "no LLM involved unless you type `yo`" restraint — it's what makes the tool a scalpel rather than Clippy.
@@ -300,7 +311,7 @@ Milestones (M0 and M1 are independent; M0 is the long pole — start it first):
 1. **Scrollback (Windows-native).** No tmux on Windows; source the screen via `Start-Transcript` (tail the file) or the Win32 console buffer (`ReadConsoleOutput`). Wire up the `scrollback` tool → unlocks "why did that fail?".
 2. **Session memory + state.** The binary is short-lived, so memory can't be in-process (yoshell's model) — persist a per-session history file keyed by a `YO_SESSION` id the snippet sets. Also the prerequisite for continuation.
 3. **Multi-step continuation.** The `pending` loop: a `prompt`-function hook fires the next call, captures the executed command + output, threads the `[continuation]` message. Needs 1 + 2.
-4. **`docs` tool** (embed help) and a **second provider** (OpenAI Responses, with the worked-example tuned prompt).
+4. ~~**Second provider** (OpenAI Responses, with the worked-example tuned prompt).~~ **Done.** Next: **`docs` tool** (embed help so "how do I configure yo?" is answered from real docs, not guessed).
 5. **Breadth:** bash + zsh snippets; macOS + Linux builds (where tmux/zellij scrollback "just works").
 6. **Distribution & hardening:** winget/scoop, code signing, secret redaction.
 

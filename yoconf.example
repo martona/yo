@@ -1,0 +1,28 @@
+# yo configuration -- copy to ~/.yoconf and edit.
+#
+# All directives are optional; lines starting with # are comments. yo re-reads
+# this file on every invocation, so changes take effect immediately.
+# (On Windows, ~ is %USERPROFILE%.)
+
+# Provider: "anthropic" (default) or "openai".
+# If omitted, yo infers it from whichever key file exists
+#   ~/.anthropickey -> anthropic
+#   ~/.openaikey    -> openai
+# and defaults to anthropic when neither is present.
+provider anthropic
+
+# Model (optional, provider-specific). Defaults:
+#   anthropic -> claude-sonnet-4-6
+#   openai    -> gpt-5.2   (mirrored from yoshell; set a real id if this 404s)
+# model claude-sonnet-4-6
+
+# API key (optional here). If omitted, yo reads the provider's key file:
+#   anthropic -> ~/.anthropickey
+#   openai    -> ~/.openaikey
+# A key file may be UTF-8, UTF-8-BOM, or UTF-16 -- yo decodes all of them.
+# key sk-ant-...
+
+# Base URL override (optional), e.g. for a proxy or an OpenAI-compatible
+# endpoint. The path (/messages for anthropic, /responses for openai) is
+# appended automatically.
+# base_url https://your-proxy.example.com/v1
