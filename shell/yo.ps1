@@ -104,6 +104,13 @@ function yo {
         return
     }
 
+    # Binary-level debug flags (--dry-run, --check, --scrollback): pass straight
+    # through and print raw output; don't parse as a Result or prefill.
+    if ($args.Count -gt 0 -and $args[0] -like '-*') {
+        & $bin @args
+        return
+    }
+
     # stdout = one JSON line; stderr = the transient "thinking..." indicator.
     $json = & $bin @args
     Invoke-YoResult $json

@@ -15,7 +15,8 @@ A standalone, cross-platform LLM-enabled command assistant. Type `yo <natural la
 - **Shell integration:** `shell/yo.ps1` — the `yo` function, a one-shot OnIdle next-prompt prefill, and a wrapped `prompt` that drives multi-step. `.ps1` files are kept pure ASCII (PowerShell 5.1 chokes on smart punctuation), and the snippet forces `[Console]::OutputEncoding = UTF-8` so non-ASCII replies render. Key/config files are decoded tolerantly (UTF-8 / UTF-8-BOM / UTF-16), a Windows footgun.
 - **Multi-step:** a `pending` command arms a continuation; after you run it, the next step is fetched (with its exit code) and prefilled — repeating until `pending:false`. Built and live-verified. See [Multi-step continuation (as built)](#multi-step-continuation-as-built).
 - **Known limitation:** on **Windows PowerShell 5.1**, the bundled PSReadLine 2.0 garbles the programmatic prefill (the command renders doubled) — confirmed not a double-fire on our side (a one-shot handler didn't fix it), so it's a 2.0 render bug. pwsh 7+ is clean; 5.1 needs `Install-Module PSReadLine` or pwsh 7+. To be handled by guided setup.
-- **Built next:** scrollback context ("why did that fail?"), then continuation fed by it.
+- **Scrollback:** inside **zellij**, recent screen output is captured and folded into the query as context ("why did that fail?") — `zellij action dump-screen --full --path <file>`, ANSI-stripped, last 200 lines, no redaction yet (`internal/scrollback`). A clean no-op outside zellij.
+- **Built next:** feed scrollback into continuation steps (output-fed continuation), then cross-call session memory.
 
 ---
 
@@ -139,7 +140,7 @@ Continuation (multi-step) rides the **same** integration surface and ports almos
 If you want the model to see what's on your screen ("why did that command fail?"), you opt in by running inside a terminal multiplexer:
 
 - **tmux:** `tmux capture-pane -pS -1000`
-- **zellij:** `zellij action dump-screen --full` (cross-platform)
+- **zellij:** `zellij action dump-screen --full --path <file>` (cross-platform)
 
 This is elegant because both commands return the **already-resolved screen state** — cells, not the raw byte stream. The multiplexer is a real terminal emulator: it ran the state machine and collapsed all the redraw frames (Docker progress, cargo's live block, npm spinners, Atuin's repaints) into the one frame you actually saw. **All the transcript-pollution problems evaporate** because we never see the animation that produced the screen, only the screen.
 
@@ -149,6 +150,8 @@ Design choices:
 - v1 implementation: shell out. Detect `$TMUX` / `$ZELLIJ`, run the capture command, read stdout. (Control protocols are more robust but more work — defer.)
 - On **Windows** (our first target) tmux isn't available; the native scrollback source is PowerShell `Start-Transcript` (tail the transcript file) or the Win32 console buffer (`ReadConsoleOutput`). Deferred past the first runnable version.
 - Capture depth (`-1000`) configurable, probably default smaller.
+
+**As built (zellij, extended-prompt):** v0.1 ships exactly this, zellij-only (the lone multiplexer candidate on Windows). The **binary** captures it — it inherits `$env:ZELLIJ` from the shell, runs `zellij action dump-screen --full --path <file>`, strips ANSI, and keeps the last 200 lines (`internal/scrollback`). Rather than a model-requested `scrollback` tool (yoshell's approach), it folds the capture into the request **up front** as a framed context block (`llm.WithTerminalContext`) — simpler, no extra round-trip; the framing tells the model the output is past/completed and to use it only if relevant. Applied to the initial `yo <text>` query only — not yet to continuation steps (that's the output-fed upgrade). No secret redaction yet (deliberately deferred). Outside zellij it's a clean no-op.
 
 ### Secret redaction — a clean, separable, bolted-on layer
 
@@ -336,7 +339,7 @@ Milestones (M0 and M1 are independent; M0 is the long pole — start it first):
 
 ### After v0.1 (rough order)
 
-1. **Scrollback (Windows-native).** No tmux on Windows; source the screen via `Start-Transcript` (tail the file) or the Win32 console buffer (`ReadConsoleOutput`). Wire up the `scrollback` tool → unlocks "why did that fail?".
+1. ~~**Scrollback (Windows-native).**~~ **Done** — zellij only (`zellij action dump-screen --full --path <file>`), folded into the query as a context block (`internal/scrollback` + `llm.WithTerminalContext`), ANSI-stripped, last 200 lines. No `Start-Transcript`/console-buffer fallback yet and no redaction yet. Next here: feed it into continuation steps (output-fed continuation).
 2. **Session memory.** Remember exchanges across *independent* `yo` calls. The binary is short-lived, so this needs a persisted store (a per-session file or small DB). Note: continuation itself did NOT need this — it carries its own state in `$env:YO_STATE`; full session memory is the larger, longer-lived case.
 3. ~~**Multi-step continuation.**~~ **Done** — exit-code feedback, env-var state; see [Multi-step continuation (as built)](#multi-step-continuation-as-built). The output-fed upgrade depends on scrollback (item 1).
 4. ~~**Second provider** (OpenAI Responses, with the worked-example tuned prompt).~~ **Done.** Next: **`docs` tool** (embed help so "how do I configure yo?" is answered from real docs, not guessed).

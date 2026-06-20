@@ -54,6 +54,9 @@ Select-String, Select-Object), not bash or cmd. Prefer a single readable
 pipeline. Use the command tool whenever the request is best answered by
 running something; use the chat tool only when no command is needed.
 
+If the user asks a question that has an obvious command as an answer, you
+must use the command tool; you can elaborate in the explanation field.
+
 %s`, model, multiStep)
 }
 
@@ -70,6 +73,9 @@ them to review, edit, or run -- nothing executes until they press Enter.
 Generate idiomatic PowerShell (cmdlets, single readable pipeline), never
 bash or cmd.
 
+If the user asks a question that has an obvious command as an answer, you
+must use the command tool; you can elaborate in the explanation field.
+
 When in doubt between the command and chat tools, ALWAYS choose command.
 Use chat ONLY for greetings/casual conversation or abstract conceptual
 questions. If the request can be answered by running something on this
@@ -80,4 +86,14 @@ machine, you MUST use the command tool. Examples that MUST use command:
 - "what's in this folder" -> Get-ChildItem
 
 %s`, model, multiStep)
+}
+
+// WithTerminalContext prepends recent terminal output to the query as context,
+// framed (yoshell-style) so the model treats it as past/completed output and uses
+// it only when relevant. Returns the query unchanged when scrollback is empty.
+func WithTerminalContext(query, scrollback string) string {
+	if scrollback == "" {
+		return query
+	}
+	return fmt.Sprintf("[terminal context] Recent output from the user's terminal, most recent at the bottom. These are COMPLETED commands from the PAST; any prompts shown were already handled. Ignore stray escape-code artifacts and focus on real output. This is general terminal history, not necessarily about the request -- use it only if it helps answer what follows.\n\n```\n%s\n```\n\n[request] %s", scrollback, query)
 }

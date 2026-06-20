@@ -22,13 +22,19 @@ import (
 
 	"github.com/martona/yo/internal/config"
 	"github.com/martona/yo/internal/llm"
+	"github.com/martona/yo/internal/scrollback"
 )
+
+// scrollbackMaxLines caps how much recent terminal output we fold into a query
+// when running inside a multiplexer (zellij).
+const scrollbackMaxLines = 200
 
 func main() {
 	dryRun := flag.Bool("dry-run", false, "print the assembled API request to stdout and exit (no network or key needed)")
 	check := flag.Bool("check", false, "validate config and the API key (no network), then exit")
 	cont := flag.Bool("continue", false, "continuation step; reads $env:YO_STATE (used by the shell integration)")
 	exitCode := flag.Int("exit", 0, "exit code of the just-run command (with --continue)")
+	dumpSB := flag.Bool("scrollback", false, "print the captured terminal scrollback and exit (debug)")
 	flag.Parse()
 
 	switch {
@@ -37,6 +43,12 @@ func main() {
 		return
 	case *cont:
 		runContinue(*exitCode, *dryRun)
+		return
+	case *dumpSB:
+		fmt.Fprintf(os.Stderr, "ZELLIJ=%q\n", os.Getenv("ZELLIJ"))
+		out := scrollback.Capture(scrollbackMaxLines)
+		fmt.Fprintf(os.Stderr, "captured %d chars\n", len(out))
+		fmt.Print(out)
 		return
 	}
 
@@ -62,6 +74,10 @@ func main() {
 		emit(llm.Result{Type: "error", Message: err.Error()})
 		os.Exit(1)
 	}
+
+	// Opportunistic terminal context: when running inside zellij, fold recent
+	// screen output into the query so "why did that fail?" works. No-op otherwise.
+	query = llm.WithTerminalContext(query, scrollback.Capture(scrollbackMaxLines))
 
 	if *dryRun {
 		body, err := provider.Request(query)
