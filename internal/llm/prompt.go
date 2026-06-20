@@ -95,5 +95,11 @@ func WithTerminalContext(query, scrollback string) string {
 	if scrollback == "" {
 		return query
 	}
-	return fmt.Sprintf("[terminal context] Recent output from the user's terminal, most recent at the bottom. These are COMPLETED commands from the PAST; any prompts shown were already handled. Ignore stray escape-code artifacts and focus on real output. This is general terminal history, not necessarily about the request -- use it only if it helps answer what follows.\n\n```\n%s\n```\n\n[request] %s", scrollback, query)
+	return fmt.Sprintf("[terminal context] Recent output from the user's " +
+	                   "terminal, most recent at the bottom. These are " +
+					   "COMPLETED commands from the PAST; any prompts shown " +
+					   "were already handled. Ignore stray escape-code " +
+					   "artifacts and focus on real output. This is general " +
+					   "terminal history, not necessarily about the request -- " +
+					   "use it only if it helps answer what follows.\n\n```\n%s\n```\n\n[request] %s", scrollback, query)
 }

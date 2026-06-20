@@ -33,8 +33,8 @@ type providerDefaults struct {
 // defaults: models mirror yoshell's conventions (override via ~/.yoconf); the
 // key env vars are the ecosystem standard used by the official SDKs.
 var defaults = map[string]providerDefaults{
-	"anthropic": {model: "claude-sonnet-4-6", envKey: "ANTHROPIC_API_KEY"},
-	"openai":    {model: "gpt-5.2", envKey: "OPENAI_API_KEY"},
+	"anthropic": {model: "claude-opus-4-8", envKey: "ANTHROPIC_API_KEY"},
+	"openai":    {model: "gpt-5.5", envKey: "OPENAI_API_KEY"},
 }
 
 // inferOrder is the probe order when ~/.yoconf names no provider.
