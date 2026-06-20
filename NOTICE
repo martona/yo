@@ -52,3 +52,20 @@ shell. Notable differences from yoshell:
 
 See docs/DESIGN-NOTES.md for the full rationale and the mapping between
 yoshell's mechanisms and yo's.
+
+
+BUNDLED THIRD-PARTY COMPONENTS
+==============================
+
+The compiled `yo` binary statically links the following, whose licenses are
+compatible with GPLv3 and whose copyright/permission notices are retained:
+
+  * gitleaks - https://github.com/gitleaks/gitleaks
+    Copyright (c) 2019 Zachary Rice
+    Licensed under the MIT License.
+    Used as the secret-detection engine for outbound redaction
+    (internal/redact); its default ruleset is embedded in the binary.
+
+gitleaks pulls in further transitive Go dependencies under permissive
+licenses (MIT / BSD / Apache-2.0). A complete third-party license listing is
+a distribution-time task (see docs/DESIGN-NOTES.md, "Distribution & hardening").

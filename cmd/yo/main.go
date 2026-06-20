@@ -22,6 +22,7 @@ import (
 
 	"github.com/martona/yo/internal/config"
 	"github.com/martona/yo/internal/llm"
+	"github.com/martona/yo/internal/redact"
 	"github.com/martona/yo/internal/scrollback"
 	"github.com/martona/yo/internal/textwrap"
 )
@@ -84,9 +85,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Opportunistic terminal context: when running inside zellij, fold recent
-	// screen output into the query so "why did that fail?" works. No-op otherwise.
-	query = llm.WithTerminalContext(query, scrollback.Capture(scrollbackMaxLines))
+	// Opportunistic terminal context (redacted): fold recent screen output into the
+	// query so "why did that fail?" works. No-op outside zellij.
+	query = withScrollback(query)
 
 	if *dryRun {
 		body, err := provider.Request(query)
@@ -149,11 +150,11 @@ func runContinue(exitCode int, dryRun bool) {
 	st.SetLastExit(exitCode)
 	query := st.ContinuationQuery(exitCode)
 
-	// Opportunistic terminal context: by the time --continue fires (at the next
-	// prompt), the just-run step's command and output are on screen, so folding the
-	// capture in lets the model react to real output, not just the exit code. No-op
-	// outside zellij; symmetric with the initial query path in main().
-	query = llm.WithTerminalContext(query, scrollback.Capture(scrollbackMaxLines))
+	// Opportunistic terminal context (redacted): by the time --continue fires, the
+	// just-run step's command and output are on screen, so folding the capture in
+	// lets the model react to real output, not just the exit code. No-op outside
+	// zellij; symmetric with the initial query path in main().
+	query = withScrollback(query)
 
 	if dryRun {
 		body, err := provider.Request(query)
@@ -198,6 +199,33 @@ func generate(p llm.Provider, query string) (llm.Result, error) {
 	res, err := p.Generate(ctx, query)
 	fmt.Fprint(os.Stderr, "\r            \r") // clear the transient indicator
 	return res, err
+}
+
+// withScrollback folds redacted terminal scrollback into the query. Capture is a
+// no-op (empty) outside zellij, so there we return the query untouched and never
+// even build the redactor. When there is output, secrets are scrubbed before it
+// leaves the machine; if any were found, a one-line note goes to stderr (stdout is
+// the JSON contract). Fails closed: if the redactor cannot be built we drop the
+// scrollback rather than send it raw.
+func withScrollback(query string) string {
+	raw := scrollback.Capture(scrollbackMaxLines)
+	if raw == "" {
+		return query
+	}
+	r, err := redact.New()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "yo: redaction unavailable (%v); skipping terminal context\n", err)
+		return query
+	}
+	res := r.Redact(raw)
+	if res.Count > 0 {
+		noun := "secrets"
+		if res.Count == 1 {
+			noun = "secret"
+		}
+		fmt.Fprintf(os.Stderr, "yo: redacted %d %s (%s)\n", res.Count, noun, strings.Join(res.Kinds, ", "))
+	}
+	return llm.WithTerminalContext(query, res.Text)
 }
 
 // runCheck validates config and the API key without any network call.

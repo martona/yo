@@ -16,8 +16,8 @@ A standalone, cross-platform LLM-enabled command assistant. Type `yo <natural la
 - **Raw-line capture:** a PSReadLine Enter hook single-quotes a `yo <query>` line before PowerShell parses it, so a question can contain `( ) < > & ; | $` without manual quoting; debug-flag calls (`yo --dry-run …`), already-quoted lines, and all non-`yo` input pass through untouched. Requires PSReadLine (pwsh 7+) with a guarded fallback. New — pending live verification on a pwsh 7+ console. See [Raw-line capture (PowerShell)](#raw-line-capture-powershell).
 - **Multi-step:** a `pending` command arms a continuation; after you run it, the next step is fetched (with its exit code) and prefilled — repeating until `pending:false`. Built and live-verified. See [Multi-step continuation (as built)](#multi-step-continuation-as-built).
 - **Known limitation:** on **Windows PowerShell 5.1**, the bundled PSReadLine 2.0 garbles the programmatic prefill (the command renders doubled) — confirmed not a double-fire on our side (a one-shot handler didn't fix it), so it's a 2.0 render bug. pwsh 7+ is clean; 5.1 needs `Install-Module PSReadLine` or pwsh 7+. To be handled by guided setup.
-- **Scrollback:** inside **zellij**, recent screen output is captured and folded into the query as context ("why did that fail?") — `zellij action dump-screen --full --path <file>`, ANSI-stripped, last 200 lines, no redaction yet (`internal/scrollback`). A clean no-op outside zellij.
-- **Output-fed continuation:** **done** — continuation steps now fold in scrollback the same way the initial query does (in zellij), so the model reacts to each step's real output, not just its exit code. **Built next:** secret redaction (scrollback now rides every continuation step unredacted), then cross-call session memory.
+- **Scrollback:** inside **zellij**, recent screen output is captured and folded into the query as context ("why did that fail?") — `zellij action dump-screen --full --path <file>`, ANSI-stripped, last 200 lines, then secrets scrubbed before send (`internal/scrollback` + `internal/redact`). A clean no-op outside zellij.
+- **Output-fed continuation:** **done** — continuation steps now fold in scrollback the same way the initial query does (in zellij), so the model reacts to each step's real output, not just its exit code. **Secret redaction:** **done** too — outbound scrollback is scrubbed by gitleaks' engine (imported in-process, embedded ruleset) before send, on both paths (`internal/redact`). **Built next:** cross-call session memory.
 
 ---
 
@@ -177,17 +177,15 @@ Design choices:
 
 **As built (zellij, extended-prompt):** v0.1 ships exactly this, zellij-only (the lone multiplexer candidate on Windows). The **binary** captures it — it inherits `$env:ZELLIJ` from the shell, runs `zellij action dump-screen --full --path <file>`, strips ANSI, and keeps the last 200 lines (`internal/scrollback`). Rather than a model-requested `scrollback` tool (yoshell's approach), it folds the capture into the request **up front** as a framed context block (`llm.WithTerminalContext`) — simpler, no extra round-trip; the framing tells the model the output is past/completed and to use it only if relevant. Applied to both the initial `yo <text>` query and each continuation step (the `--continue` call), so a multi-step task reacts to real output and not just exit codes. No secret redaction yet (deliberately deferred). Outside zellij it's a clean no-op.
 
-### Secret redaction — a clean, separable, bolted-on layer
+### Secret redaction
 
-Explicitly **not** a cornerstone and **not** a v1 requirement. yoshell does nothing here; we can do better when the time comes, as a separable layer on the *read* path (when the outbound payload is assembled), since any captured buffer or transcript contains raw secrets.
+**Built.** Outbound terminal scrollback is scrubbed before it crosses the wire, on the *read* path — `internal/redact`, applied in `withScrollback` so it covers both the initial query and continuation steps. Detection is **gitleaks' engine**, imported as a Go library and run with its full default ruleset, which is *embedded* in our binary (`config.DefaultConfig`) so nothing ships on disk. Redaction itself is just replacing each found secret with `[REDACTED:<rule-id>]`; when any are found the binary prints a durable one-line `yo: redacted N secrets (kinds…)` to stderr (stdout stays the JSON contract). It **fails closed** — if the detector can't be built, the scrollback is dropped rather than sent raw — and is a no-op outside zellij, so the cost (~12 ms to build the detector + ~9 ms to scan 200 lines) is paid only when there is output to scan.
 
-Approaches, in increasing ambition (all deferred):
-- Entropy-based detection for long high-entropy strings.
-- Local secret-scanner or local model as the redaction stage, so detection happens on-device and only scrubbed text crosses the wire.
-- Env-var hygiene: never serialize all of `env` — whitelist (PATH, PWD, OS), never blacklist.
-- Preview/dry-run mode: show the exact post-redaction payload before sending.
+**Why gitleaks, not a hand-rolled regex set:** detection is the hard, evolving part (per-rule entropy, keyword gating, allowlists, decoders); redaction once a secret is found is trivial; and a curated regex subset would be lossy by construction. The price is a real dependency tree (~200 modules, ~+6 MB binary) — accepted, because it buys a maintained, precision-tuned detector while keeping the single-binary install (users install nothing extra; the gitleaks-*binary* and Docker options were rejected for an interactive tool — process-spawn latency, daemon/silent-fail, no single binary). gitleaks is MIT, which is GPLv3-compatible; attributed in `NOTICE`.
 
-Defense-in-depth, not perfection — say so in the docs.
+Deliberately **defense-in-depth, not perfection**: gitleaks errs toward precision (it won't flag a lone AWS access-key id with no secret beside it), so a miss is possible — but that's the same exposure that predated redaction, whereas over-redaction (mangling the context we send the model) is the worse failure, so the precision lean is intentional.
+
+Future tiers (deferred): redact the user's query and the continuation command history (not just scrollback); env-var hygiene (whitelist, never serialize all of `env`); surface the exact post-redaction payload (`--dry-run` already prints the assembled request, now with redaction applied); and entropy / local-model stages if ever needed.
 
 ---
 
@@ -199,7 +197,7 @@ Defense-in-depth, not perfection — say so in the docs.
 - **Core loop:** `yo <text>` → API → parse → prefill.
 - **Session memory:** per-session conversation context with a token budget — but persisted *across invocations* in a per-session state file, since the binary is short-lived (unlike yoshell's in-process history). Stateless in the first runnable version.
 - **Scrollback:** opt-in; tmux/zellij where present, a Windows-native source (transcript / console buffer) on Windows; graceful no-op fallback.
-- **Secret redaction:** out of scope for v1; designed as a later separable layer.
+- **Secret redaction:** built (post-v1) — gitleaks' engine (embedded ruleset) scrubs outbound scrollback on the read path; see [Secret redaction](#secret-redaction).
 
 ---
 
@@ -324,7 +322,7 @@ The continuation we shipped is the **exit-code** variant planned in the Q4 study
 
 **Two hooks, split by capability:** the wrapped `prompt` *detects the run and fetches the next step* (it can see history + `$?`); the one-shot OnIdle *prefills* each step (it can call `Insert()`). The prefill handler unregisters itself after firing once, so it can't double-insert.
 
-**Feedback between steps:** the exit code (`$?` → 0/1) always, plus — inside zellij — the step's actual terminal **output**, folded in by the same opportunistic scrollback capture the initial query uses (by the time `--continue` fires at the next prompt, the screen already shows the command and its result). So in a multiplexer the model reacts to real output; outside one, the exit code is the floor. This was the long-deferred "output-fed continuation" — and it turned out to be one line, since the capture already existed and only needed to ride the `--continue` path. Two caveats: the whole screen is folded in (not a step-scoped slice), so the model correlates "command N → exit X" with the output at the bottom; and it rides **unredacted**, the same exposure the initial query already carries (see secret redaction).
+**Feedback between steps:** the exit code (`$?` → 0/1) always, plus — inside zellij — the step's actual terminal **output**, folded in by the same opportunistic scrollback capture the initial query uses (by the time `--continue` fires at the next prompt, the screen already shows the command and its result). So in a multiplexer the model reacts to real output; outside one, the exit code is the floor. This was the long-deferred "output-fed continuation" — and it turned out to be one line, since the capture already existed and only needed to ride the `--continue` path. Two caveats: the whole screen is folded in (not a step-scoped slice), so the model correlates "command N → exit X" with the output at the bottom; and it is **redacted** before send by the same `internal/redact` pass the initial query uses (see [Secret redaction](#secret-redaction)).
 
 **Termination / cancel:** a `pending:false` command, a `chat` reply, a new `yo …` (the function disarms first thing), or the step cap (`maxSteps` in `state.go`). Empty-line cancel isn't detected yet — a new `yo` is the clean cancel.
 
@@ -363,12 +361,12 @@ Milestones (M0 and M1 are independent; M0 is the long pole — start it first):
 
 ### After v0.1 (rough order)
 
-1. ~~**Scrollback (Windows-native).**~~ **Done** — zellij only (`zellij action dump-screen --full --path <file>`), folded into the query as a context block (`internal/scrollback` + `llm.WithTerminalContext`), ANSI-stripped, last 200 lines. No `Start-Transcript`/console-buffer fallback yet and no redaction yet. Now folded into continuation steps too (the `--continue` path), not just the initial query.
+1. ~~**Scrollback (Windows-native).**~~ **Done** — zellij only (`zellij action dump-screen --full --path <file>`), folded into the query as a context block (`internal/scrollback` + `llm.WithTerminalContext`), ANSI-stripped, last 200 lines. No `Start-Transcript`/console-buffer fallback yet. Now folded into continuation steps too (the `--continue` path), not just the initial query, and the captured text is redacted before send.
 2. **Session memory.** Remember exchanges across *independent* `yo` calls. The binary is short-lived, so this needs a persisted store (a per-session file or small DB). Note: continuation itself did NOT need this — it carries its own state in `$env:YO_STATE`; full session memory is the larger, longer-lived case.
 3. ~~**Multi-step continuation.**~~ **Done** — exit-code feedback, env-var state; see [Multi-step continuation (as built)](#multi-step-continuation-as-built). **Output-fed continuation** — folding each step's scrollback into the `--continue` call — is now done too, as a one-liner on top of item 1.
 4. ~~**Second provider** (OpenAI Responses, with the worked-example tuned prompt).~~ **Done.** Next: **`docs` tool** (embed help so "how do I configure yo?" is answered from real docs, not guessed).
 5. **Breadth:** bash + zsh snippets; macOS + Linux builds (where tmux/zellij scrollback "just works"). Prose word-wrapping already lives in the binary (`internal/textwrap`, fed by `--width`), so a port just reports its width; only color stays per-snippet.
-6. **Distribution & hardening:** winget/scoop, code signing, secret redaction.
+6. **Distribution & hardening:** winget/scoop, code signing.
 
 ### Housekeeping (carry-over)
 
