@@ -23,11 +23,18 @@ import (
 	"github.com/martona/yo/internal/config"
 	"github.com/martona/yo/internal/llm"
 	"github.com/martona/yo/internal/scrollback"
+	"github.com/martona/yo/internal/textwrap"
 )
 
 // scrollbackMaxLines caps how much recent terminal output we fold into a query
 // when running inside a multiplexer (zellij).
 const scrollbackMaxLines = 200
+
+// displayWidth is the column width for wrapping prose output (explanation, chat,
+// error message), supplied by the shell via --width; 0 disables wrapping. Wrapping
+// lives in the binary so every shell integration shares one implementation -- the
+// snippet only has to report its terminal width.
+var displayWidth int
 
 func main() {
 	dryRun := flag.Bool("dry-run", false, "print the assembled API request to stdout and exit (no network or key needed)")
@@ -35,7 +42,9 @@ func main() {
 	cont := flag.Bool("continue", false, "continuation step; reads $env:YO_STATE (used by the shell integration)")
 	exitCode := flag.Int("exit", 0, "exit code of the just-run command (with --continue)")
 	dumpSB := flag.Bool("scrollback", false, "print the captured terminal scrollback and exit (debug)")
+	width := flag.Int("width", 0, "wrap prose output to this column width (0 = no wrap; set by the shell integration)")
 	flag.Parse()
+	displayWidth = *width
 
 	switch {
 	case *check:
@@ -140,6 +149,12 @@ func runContinue(exitCode int, dryRun bool) {
 	st.SetLastExit(exitCode)
 	query := st.ContinuationQuery(exitCode)
 
+	// Opportunistic terminal context: by the time --continue fires (at the next
+	// prompt), the just-run step's command and output are on screen, so folding the
+	// capture in lets the model react to real output, not just the exit code. No-op
+	// outside zellij; symmetric with the initial query path in main().
+	query = llm.WithTerminalContext(query, scrollback.Capture(scrollbackMaxLines))
+
 	if dryRun {
 		body, err := provider.Request(query)
 		if err != nil {
@@ -202,6 +217,13 @@ func runCheck() {
 // emit writes a Result as one JSON line to stdout. Errors are emitted in the
 // same shape so the snippet can parse every outcome uniformly.
 func emit(r llm.Result) {
+	// Wrap prose for display only. This runs after any continuation State has been
+	// encoded from the raw fields (see main/runContinue), so wrapped text never
+	// leaks into the model's replayed context. Command is never wrapped -- it is
+	// prefilled onto the line editor as a single runnable line.
+	r.Explanation = textwrap.Wrap(r.Explanation, displayWidth)
+	r.Response = textwrap.Wrap(r.Response, displayWidth)
+	r.Message = textwrap.Wrap(r.Message, displayWidth)
 	if err := encodeResult(os.Stdout, r); err != nil {
 		fmt.Fprintln(os.Stdout, `{"type":"error","message":"failed to encode result"}`)
 	}

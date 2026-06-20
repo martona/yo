@@ -17,7 +17,7 @@ A standalone, cross-platform LLM-enabled command assistant. Type `yo <natural la
 - **Multi-step:** a `pending` command arms a continuation; after you run it, the next step is fetched (with its exit code) and prefilled — repeating until `pending:false`. Built and live-verified. See [Multi-step continuation (as built)](#multi-step-continuation-as-built).
 - **Known limitation:** on **Windows PowerShell 5.1**, the bundled PSReadLine 2.0 garbles the programmatic prefill (the command renders doubled) — confirmed not a double-fire on our side (a one-shot handler didn't fix it), so it's a 2.0 render bug. pwsh 7+ is clean; 5.1 needs `Install-Module PSReadLine` or pwsh 7+. To be handled by guided setup.
 - **Scrollback:** inside **zellij**, recent screen output is captured and folded into the query as context ("why did that fail?") — `zellij action dump-screen --full --path <file>`, ANSI-stripped, last 200 lines, no redaction yet (`internal/scrollback`). A clean no-op outside zellij.
-- **Built next:** feed scrollback into continuation steps (output-fed continuation), then cross-call session memory.
+- **Output-fed continuation:** **done** — continuation steps now fold in scrollback the same way the initial query does (in zellij), so the model reacts to each step's real output, not just its exit code. **Built next:** secret redaction (scrollback now rides every continuation step unredacted), then cross-call session memory.
 
 ---
 
@@ -175,7 +175,7 @@ Design choices:
 - On **Windows** (our first target) tmux isn't available; the native scrollback source is PowerShell `Start-Transcript` (tail the transcript file) or the Win32 console buffer (`ReadConsoleOutput`). Deferred past the first runnable version.
 - Capture depth (`-1000`) configurable, probably default smaller.
 
-**As built (zellij, extended-prompt):** v0.1 ships exactly this, zellij-only (the lone multiplexer candidate on Windows). The **binary** captures it — it inherits `$env:ZELLIJ` from the shell, runs `zellij action dump-screen --full --path <file>`, strips ANSI, and keeps the last 200 lines (`internal/scrollback`). Rather than a model-requested `scrollback` tool (yoshell's approach), it folds the capture into the request **up front** as a framed context block (`llm.WithTerminalContext`) — simpler, no extra round-trip; the framing tells the model the output is past/completed and to use it only if relevant. Applied to the initial `yo <text>` query only — not yet to continuation steps (that's the output-fed upgrade). No secret redaction yet (deliberately deferred). Outside zellij it's a clean no-op.
+**As built (zellij, extended-prompt):** v0.1 ships exactly this, zellij-only (the lone multiplexer candidate on Windows). The **binary** captures it — it inherits `$env:ZELLIJ` from the shell, runs `zellij action dump-screen --full --path <file>`, strips ANSI, and keeps the last 200 lines (`internal/scrollback`). Rather than a model-requested `scrollback` tool (yoshell's approach), it folds the capture into the request **up front** as a framed context block (`llm.WithTerminalContext`) — simpler, no extra round-trip; the framing tells the model the output is past/completed and to use it only if relevant. Applied to both the initial `yo <text>` query and each continuation step (the `--continue` call), so a multi-step task reacts to real output and not just exit codes. No secret redaction yet (deliberately deferred). Outside zellij it's a clean no-op.
 
 ### Secret redaction — a clean, separable, bolted-on layer
 
@@ -324,7 +324,7 @@ The continuation we shipped is the **exit-code** variant planned in the Q4 study
 
 **Two hooks, split by capability:** the wrapped `prompt` *detects the run and fetches the next step* (it can see history + `$?`); the one-shot OnIdle *prefills* each step (it can call `Insert()`). The prefill handler unregisters itself after firing once, so it can't double-insert.
 
-**Feedback between steps is the exit code only** (`$?` → 0/1). The model sees what ran and each step's success/failure — enough for sequences and success-branching, but it does NOT see command *output*. That's the scrollback-fed upgrade (deferred), and it's where continuation's real power lives.
+**Feedback between steps:** the exit code (`$?` → 0/1) always, plus — inside zellij — the step's actual terminal **output**, folded in by the same opportunistic scrollback capture the initial query uses (by the time `--continue` fires at the next prompt, the screen already shows the command and its result). So in a multiplexer the model reacts to real output; outside one, the exit code is the floor. This was the long-deferred "output-fed continuation" — and it turned out to be one line, since the capture already existed and only needed to ride the `--continue` path. Two caveats: the whole screen is folded in (not a step-scoped slice), so the model correlates "command N → exit X" with the output at the bottom; and it rides **unredacted**, the same exposure the initial query already carries (see secret redaction).
 
 **Termination / cancel:** a `pending:false` command, a `chat` reply, a new `yo …` (the function disarms first thing), or the step cap (`maxSteps` in `state.go`). Empty-line cancel isn't detected yet — a new `yo` is the clean cancel.
 
@@ -363,11 +363,11 @@ Milestones (M0 and M1 are independent; M0 is the long pole — start it first):
 
 ### After v0.1 (rough order)
 
-1. ~~**Scrollback (Windows-native).**~~ **Done** — zellij only (`zellij action dump-screen --full --path <file>`), folded into the query as a context block (`internal/scrollback` + `llm.WithTerminalContext`), ANSI-stripped, last 200 lines. No `Start-Transcript`/console-buffer fallback yet and no redaction yet. Next here: feed it into continuation steps (output-fed continuation).
+1. ~~**Scrollback (Windows-native).**~~ **Done** — zellij only (`zellij action dump-screen --full --path <file>`), folded into the query as a context block (`internal/scrollback` + `llm.WithTerminalContext`), ANSI-stripped, last 200 lines. No `Start-Transcript`/console-buffer fallback yet and no redaction yet. Now folded into continuation steps too (the `--continue` path), not just the initial query.
 2. **Session memory.** Remember exchanges across *independent* `yo` calls. The binary is short-lived, so this needs a persisted store (a per-session file or small DB). Note: continuation itself did NOT need this — it carries its own state in `$env:YO_STATE`; full session memory is the larger, longer-lived case.
-3. ~~**Multi-step continuation.**~~ **Done** — exit-code feedback, env-var state; see [Multi-step continuation (as built)](#multi-step-continuation-as-built). The output-fed upgrade depends on scrollback (item 1).
+3. ~~**Multi-step continuation.**~~ **Done** — exit-code feedback, env-var state; see [Multi-step continuation (as built)](#multi-step-continuation-as-built). **Output-fed continuation** — folding each step's scrollback into the `--continue` call — is now done too, as a one-liner on top of item 1.
 4. ~~**Second provider** (OpenAI Responses, with the worked-example tuned prompt).~~ **Done.** Next: **`docs` tool** (embed help so "how do I configure yo?" is answered from real docs, not guessed).
-5. **Breadth:** bash + zsh snippets; macOS + Linux builds (where tmux/zellij scrollback "just works").
+5. **Breadth:** bash + zsh snippets; macOS + Linux builds (where tmux/zellij scrollback "just works"). Prose word-wrapping already lives in the binary (`internal/textwrap`, fed by `--width`), so a port just reports its width; only color stays per-snippet.
 6. **Distribution & hardening:** winget/scoop, code signing, secret redaction.
 
 ### Housekeeping (carry-over)
