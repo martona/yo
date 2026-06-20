@@ -13,5 +13,13 @@ type Result struct {
 	Command     string `json:"command,omitempty"`
 	Explanation string `json:"explanation,omitempty"`
 	Response    string `json:"response,omitempty"`
-	Message     string `json:"message,omitempty"` // populated when Type == "error"
+
+	// Pending marks a command as one step of a multi-step task: the snippet runs
+	// it, then fires a continuation step. Always false for chat/error.
+	Pending bool `json:"pending,omitempty"`
+	// State is the base64 continuation blob for the snippet to stash in
+	// $env:YO_STATE. Present iff a continuation is active; empty means "clear".
+	State string `json:"state,omitempty"`
+
+	Message string `json:"message,omitempty"` // populated when Type == "error"
 }

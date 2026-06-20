@@ -21,6 +21,12 @@ func TestParseAnthropic(t *testing.T) {
 			want:   Result{Type: "command", Command: "Get-ChildItem -Recurse", Explanation: "lists files"},
 		},
 		{
+			name:   "command pending (multi-step)",
+			body:   `{"type":"message","content":[{"type":"tool_use","name":"command","input":{"command":"choco install foo","explanation":"install","pending":true}}]}`,
+			status: 200,
+			want:   Result{Type: "command", Command: "choco install foo", Explanation: "install", Pending: true},
+		},
+		{
 			name:   "chat",
 			body:   `{"type":"message","content":[{"type":"tool_use","name":"chat","input":{"response":"A pipe passes output."}}]}`,
 			status: 200,

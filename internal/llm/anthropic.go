@@ -107,6 +107,7 @@ func anthropicTools() []anthropicTool {
 				"properties": map[string]any{
 					"command":     map[string]any{"type": "string", "description": descCommandFld},
 					"explanation": map[string]any{"type": "string", "description": descExplainFld},
+					"pending":     map[string]any{"type": "boolean", "description": descPendingFld},
 				},
 				"required": []string{"command", "explanation"},
 			},
@@ -149,11 +150,12 @@ func parseAnthropic(body []byte, status int) (Result, error) {
 			var in struct {
 				Command     string `json:"command"`
 				Explanation string `json:"explanation"`
+				Pending     bool   `json:"pending"`
 			}
 			if err := json.Unmarshal(b.Input, &in); err != nil {
 				return Result{}, fmt.Errorf("bad command tool input: %w", err)
 			}
-			return Result{Type: "command", Command: in.Command, Explanation: in.Explanation}, nil
+			return Result{Type: "command", Command: in.Command, Explanation: in.Explanation, Pending: in.Pending}, nil
 		case toolChat:
 			var in struct {
 				Response string `json:"response"`

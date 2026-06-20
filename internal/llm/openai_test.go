@@ -21,6 +21,12 @@ func TestParseOpenAI(t *testing.T) {
 			want:   Result{Type: "command", Command: "Get-ChildItem -Recurse", Explanation: "lists files"},
 		},
 		{
+			name:   "command pending (multi-step)",
+			body:   `{"output":[{"type":"function_call","name":"command","arguments":"{\"command\":\"choco install foo\",\"explanation\":\"install\",\"pending\":true}"}],"error":null}`,
+			status: 200,
+			want:   Result{Type: "command", Command: "choco install foo", Explanation: "install", Pending: true},
+		},
+		{
 			name:   "chat",
 			body:   `{"output":[{"type":"function_call","name":"chat","arguments":"{\"response\":\"A pipe passes output.\"}"}],"error":null}`,
 			status: 200,

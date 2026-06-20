@@ -115,7 +115,8 @@ func openaiTools() []openaiTool {
 			Parameters: objectSchema(map[string]any{
 				"command":     map[string]any{"type": "string", "description": descCommandFld},
 				"explanation": map[string]any{"type": "string", "description": descExplainFld},
-			}, "command", "explanation"),
+				"pending":     map[string]any{"type": "boolean", "description": descPendingFld},
+			}, "command", "explanation", "pending"),
 			Strict: true,
 		},
 		{
@@ -154,11 +155,12 @@ func parseOpenAI(body []byte, status int) (Result, error) {
 			var in struct {
 				Command     string `json:"command"`
 				Explanation string `json:"explanation"`
+				Pending     bool   `json:"pending"`
 			}
 			if err := json.Unmarshal([]byte(item.Arguments), &in); err != nil {
 				return Result{}, fmt.Errorf("bad command tool input: %w", err)
 			}
-			return Result{Type: "command", Command: in.Command, Explanation: in.Explanation}, nil
+			return Result{Type: "command", Command: in.Command, Explanation: in.Explanation, Pending: in.Pending}, nil
 		case toolChat:
 			var in struct {
 				Response string `json:"response"`

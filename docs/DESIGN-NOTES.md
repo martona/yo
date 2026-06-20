@@ -6,14 +6,16 @@ A standalone, cross-platform LLM-enabled command assistant. Type `yo <natural la
 
 ---
 
-## Status (2026-06-19)
+## Status (2026-06-20)
 
-**v0.1 shipped and works on Windows + PowerShell.** `yo <text>` calls the LLM and prefills a PowerShell command on the next prompt (or prints a chat answer); live-verified on both Anthropic and OpenAI.
+**v0.1 shipped and works on Windows + PowerShell 7+.** `yo <text>` calls the LLM and prefills a PowerShell command on the next prompt (or prints a chat answer); live-verified on both Anthropic and OpenAI, including multi-step sequences.
 
 - **Layout:** `cmd/yo/` (entry) + `internal/config` + `internal/llm` (a `Provider` interface with `anthropic.go` and `openai.go`). Build: `go build ./cmd/yo`. Tests live beside the code; `go test ./...` is green.
 - **Providers:** `anthropic` (Messages API) and `openai` (Responses API), selected via `provider` in `~/.yoconf` or inferred from which key env var (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) is set. See [`yoconf.example`](../yoconf.example).
-- **Shell integration:** `shell/yo.ps1` — the `yo` function plus OnIdle next-prompt prefill. `.ps1` files are kept pure ASCII (PowerShell 5.1 chokes on smart punctuation), and the snippet forces `[Console]::OutputEncoding = UTF-8` so non-ASCII replies render. Key/config files are decoded tolerantly (UTF-8 / UTF-8-BOM / UTF-16), a Windows footgun.
-- **Built next:** scrollback context, then session state + continuation (see implementation plan).
+- **Shell integration:** `shell/yo.ps1` — the `yo` function, a one-shot OnIdle next-prompt prefill, and a wrapped `prompt` that drives multi-step. `.ps1` files are kept pure ASCII (PowerShell 5.1 chokes on smart punctuation), and the snippet forces `[Console]::OutputEncoding = UTF-8` so non-ASCII replies render. Key/config files are decoded tolerantly (UTF-8 / UTF-8-BOM / UTF-16), a Windows footgun.
+- **Multi-step:** a `pending` command arms a continuation; after you run it, the next step is fetched (with its exit code) and prefilled — repeating until `pending:false`. Built and live-verified. See [Multi-step continuation (as built)](#multi-step-continuation-as-built).
+- **Known limitation:** on **Windows PowerShell 5.1**, the bundled PSReadLine 2.0 garbles the programmatic prefill (the command renders doubled) — confirmed not a double-fire on our side (a one-shot handler didn't fix it), so it's a 2.0 render bug. pwsh 7+ is clean; 5.1 needs `Install-Module PSReadLine` or pwsh 7+. To be handled by guided setup.
+- **Built next:** scrollback context ("why did that fail?"), then continuation fed by it.
 
 ---
 
@@ -277,6 +279,32 @@ For the no-multiplexer path (where there's no output to continue against anyway,
 
 ---
 
+## Multi-step continuation (as built)
+
+The continuation we shipped is the **exit-code** variant planned in the Q4 study above — output-feedback (scrollback) is still deferred. End to end:
+
+**The signal.** Every `command` result carries a `pending` boolean. `pending:false` ends the turn; `pending:true` means "run this, then I'll give the next step."
+
+**The state.** On a `pending` command the binary returns a base64 **state blob** — the original request plus the commands run so far — which the snippet stashes in `$env:YO_STATE`. The binary stays **pure**: prior state in via that env var, new state out via the result. No files, no session id, no daemon. (`internal/llm/state.go`)
+
+**The loop:**
+1. `yo <text>` → model returns a command with `pending:true` + state. The snippet prints the explanation, prefills the command, sets `$env:YO_STATE`, and **arms** (`$global:YoArmed`).
+2. The wrapped `prompt` function (main runspace, so it can read `Get-History` and `$?`) captures a history baseline at the next prompt — it does *not* fire yet.
+3. You run the prefilled command; history advances.
+4. The next `prompt` sees the advance, reads `$?` as the exit code, and calls `yo.exe --continue --exit <0|1>` (inheriting `$env:YO_STATE`).
+5. The binary decodes the state, records "step N → exit C", synthesizes a plain-text continuation turn (original request + steps so far + "give the next step or finish"), and asks the model.
+6. Model returns the next command (`pending:true` to keep going, or `pending:false`/`chat` to end). Repeat from 1.
+
+**Two hooks, split by capability:** the wrapped `prompt` *detects the run and fetches the next step* (it can see history + `$?`); the one-shot OnIdle *prefills* each step (it can call `Insert()`). The prefill handler unregisters itself after firing once, so it can't double-insert.
+
+**Feedback between steps is the exit code only** (`$?` → 0/1). The model sees what ran and each step's success/failure — enough for sequences and success-branching, but it does NOT see command *output*. That's the scrollback-fed upgrade (deferred), and it's where continuation's real power lives.
+
+**Termination / cancel:** a `pending:false` command, a `chat` reply, a new `yo …` (the function disarms first thing), or the step cap (`maxSteps` in `state.go`). Empty-line cancel isn't detected yet — a new `yo` is the clean cancel.
+
+**Whether it triggers is the model's call, and stochastic.** The same request may chain into one command (`pending:false`) on one run and split into steps on another. PowerShell's expressiveness (inline `if` / `ForEach-Object`) lets the model solve many "conditional" tasks in a single command, so `pending` engages mainly for genuinely sequential work. Pushing harder toward `pending` is a prompt knob if we decide we want it firing more often.
+
+---
+
 ## Implementation plan
 
 ### First runnable version (v0.1) — Windows + PowerShell, Anthropic
@@ -309,8 +337,8 @@ Milestones (M0 and M1 are independent; M0 is the long pole — start it first):
 ### After v0.1 (rough order)
 
 1. **Scrollback (Windows-native).** No tmux on Windows; source the screen via `Start-Transcript` (tail the file) or the Win32 console buffer (`ReadConsoleOutput`). Wire up the `scrollback` tool → unlocks "why did that fail?".
-2. **Session memory + state.** The binary is short-lived, so memory can't be in-process (yoshell's model) — persist a per-session history file keyed by a `YO_SESSION` id the snippet sets. Also the prerequisite for continuation.
-3. **Multi-step continuation.** The `pending` loop: a `prompt`-function hook fires the next call, captures the executed command + output, threads the `[continuation]` message. Needs 1 + 2.
+2. **Session memory.** Remember exchanges across *independent* `yo` calls. The binary is short-lived, so this needs a persisted store (a per-session file or small DB). Note: continuation itself did NOT need this — it carries its own state in `$env:YO_STATE`; full session memory is the larger, longer-lived case.
+3. ~~**Multi-step continuation.**~~ **Done** — exit-code feedback, env-var state; see [Multi-step continuation (as built)](#multi-step-continuation-as-built). The output-fed upgrade depends on scrollback (item 1).
 4. ~~**Second provider** (OpenAI Responses, with the worked-example tuned prompt).~~ **Done.** Next: **`docs` tool** (embed help so "how do I configure yo?" is answered from real docs, not guessed).
 5. **Breadth:** bash + zsh snippets; macOS + Linux builds (where tmux/zellij scrollback "just works").
 6. **Distribution & hardening:** winget/scoop, code signing, secret redaction.
