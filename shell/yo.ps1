@@ -142,7 +142,13 @@ function Invoke-YoContinuation([bool]$ok) {
         $global:YoBaseline = $lastId   # first prompt after arming; wait for a run
         return
     }
-    if ($lastId -le $global:YoBaseline) { return }  # nothing has run since we armed
+    if ($lastId -le $global:YoBaseline) {
+        # A fresh prompt with no new history since we armed means the user declined
+        # the prefilled step (bare Enter, or Ctrl+C abandoned the line) -> cancel.
+        $global:YoArmed = $false
+        $env:YO_STATE = ''
+        return
+    }
 
     # The user ran the prefilled step -> advance the sequence.
     $global:YoArmed = $false
@@ -227,3 +233,23 @@ try {
 } catch {
     Write-Host "yo: Enter hook not installed ($($_.Exception.Message)); quote metacharacters in yo queries." -ForegroundColor DarkYellow
 }
+
+# Ctrl+C cancels an armed multi-step sequence (you are declining the prefilled
+# step), on top of its normal copy/cancel-line behavior. This handler fires only
+# during line editing -- a running command's Ctrl+C is handled by the runtime, not
+# here -- and is a no-op when nothing is armed. We cancel only when there is no
+# selection, so Ctrl+C-to-copy still just copies.
+try {
+    Set-PSReadLineKeyHandler -Chord Ctrl+c -ScriptBlock {
+        param($key, $arg)
+        if ($global:YoArmed) {
+            $selStart = -1; $selLen = -1
+            try { [Microsoft.PowerShell.PSConsoleReadLine]::GetSelectionState([ref]$selStart, [ref]$selLen) } catch {}
+            if ($selLen -le 0) {
+                $global:YoArmed = $false
+                $env:YO_STATE = ''
+            }
+        }
+        [Microsoft.PowerShell.PSConsoleReadLine]::CopyOrCancelLine()
+    }
+} catch {}
