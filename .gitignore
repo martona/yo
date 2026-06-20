@@ -1,3 +1,7 @@
 
 # claude
 .claude/
+
+# go build artifacts
+/yo
+/yo.exe
