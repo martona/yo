@@ -1,25 +1,34 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Anthropic Messages API client. Request/response shapes mirror yoshell's
-// yo_build_anthropic_request / yo_parse_anthropic_response (readline-8.2.13/yo.c),
-// reduced to the v0.1 single-shot path (command + chat, no scrollback/docs).
-package main
+// Anthropic Messages API provider. Mirrors yoshell's yo_build_anthropic_request
+// / yo_parse_anthropic_response (readline-8.2.13/yo.c), reduced to the v0.1
+// single-shot path (command + chat; no scrollback/docs yet).
+package llm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
+
+	"github.com/martona/yo/internal/config"
 )
 
 const (
 	anthropicDefaultURL = "https://api.anthropic.com/v1/messages"
 	anthropicVersion    = "2023-06-01"
-	maxTokens           = 1024
+	anthropicMaxTokens  = 1024
 )
+
+type anthropicProvider struct {
+	model   string
+	key     string
+	baseURL string
+}
+
+func newAnthropic(cfg config.Config) *anthropicProvider {
+	return &anthropicProvider{model: cfg.Model, key: cfg.Key, baseURL: cfg.BaseURL}
+}
 
 type anthropicTool struct {
 	Name        string         `json:"name"`
@@ -51,73 +60,75 @@ type anthropicResponse struct {
 	Type    string                  `json:"type"`
 	Content []anthropicContentBlock `json:"content"`
 	Error   *struct {
-		Type    string `json:"type"`
 		Message string `json:"message"`
 	} `json:"error"`
 }
 
-// buildAnthropicRequest assembles the request body JSON. Shared by the live call
-// and by --dry-run (note: the API key is a header, never in the body, so the
-// dry-run output is safe to print).
-func buildAnthropicRequest(cfg Config, query string) ([]byte, error) {
+func (p *anthropicProvider) Request(query string) ([]byte, error) {
 	req := anthropicRequest{
-		Model:     cfg.Model,
-		MaxTokens: maxTokens,
-		System:    systemPrompt(cfg.Model),
-		Messages: []anthropicMessage{
-			{Role: "user", Content: query},
-		},
-		Tools:      buildTools(),
+		Model:      p.model,
+		MaxTokens:  anthropicMaxTokens,
+		System:     anthropicSystemPrompt(p.model),
+		Messages:   []anthropicMessage{{Role: "user", Content: query}},
+		Tools:      anthropicTools(),
 		ToolChoice: map[string]any{"type": "any"}, // force exactly one tool call
 	}
 	return json.Marshal(req)
 }
 
-// callAnthropic performs the request and normalizes the response to a Result.
-func callAnthropic(ctx context.Context, cfg Config, query string) (Result, error) {
-	if err := cfg.ready(); err != nil {
-		return Result{}, err
-	}
-
-	body, err := buildAnthropicRequest(cfg, query)
+func (p *anthropicProvider) Generate(ctx context.Context, query string) (Result, error) {
+	body, err := p.Request(query)
 	if err != nil {
 		return Result{}, fmt.Errorf("building request: %w", err)
 	}
 
 	url := anthropicDefaultURL
-	if cfg.BaseURL != "" {
-		url = strings.TrimRight(cfg.BaseURL, "/") + "/messages"
+	if p.baseURL != "" {
+		url = strings.TrimRight(p.baseURL, "/") + "/messages"
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	respBody, status, err := postJSON(ctx, url, map[string]string{
+		"x-api-key":         p.key,
+		"anthropic-version": anthropicVersion,
+	}, body)
 	if err != nil {
 		return Result{}, err
 	}
-	httpReq.Header.Set("content-type", "application/json")
-	httpReq.Header.Set("x-api-key", cfg.Key)
-	httpReq.Header.Set("anthropic-version", anthropicVersion)
-
-	resp, err := http.DefaultClient.Do(httpReq)
-	if err != nil {
-		if ctx.Err() != nil {
-			return Result{}, fmt.Errorf("cancelled")
-		}
-		return Result{}, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return Result{}, fmt.Errorf("reading response: %w", err)
-	}
-
-	return parseAnthropicResponse(respBody, resp.StatusCode)
+	return parseAnthropic(respBody, status)
 }
 
-// parseAnthropicResponse maps the API response (or an error body) to a Result.
-// It takes the first tool_use block; multiple-tool-call handling is a v0.2
-// robustness item (see DESIGN-NOTES Q2).
-func parseAnthropicResponse(body []byte, status int) (Result, error) {
+func anthropicTools() []anthropicTool {
+	return []anthropicTool{
+		{
+			Name:        toolCommand,
+			Description: descCommand,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"command":     map[string]any{"type": "string", "description": descCommandFld},
+					"explanation": map[string]any{"type": "string", "description": descExplainFld},
+				},
+				"required": []string{"command", "explanation"},
+			},
+		},
+		{
+			Name:        toolChat,
+			Description: descChat,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"response": map[string]any{"type": "string", "description": descChatFld},
+				},
+				"required": []string{"response"},
+			},
+		},
+	}
+}
+
+// parseAnthropic maps the API response (or an error body) to a Result. It takes
+// the first tool_use block; multiple-tool-call handling is a later robustness
+// item (see DESIGN-NOTES Q2).
+func parseAnthropic(body []byte, status int) (Result, error) {
 	var resp anthropicResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return Result{}, fmt.Errorf("unexpected response (status %d)", status)
@@ -134,7 +145,7 @@ func parseAnthropicResponse(body []byte, status int) (Result, error) {
 			continue
 		}
 		switch b.Name {
-		case "command":
+		case toolCommand:
 			var in struct {
 				Command     string `json:"command"`
 				Explanation string `json:"explanation"`
@@ -143,7 +154,7 @@ func parseAnthropicResponse(body []byte, status int) (Result, error) {
 				return Result{}, fmt.Errorf("bad command tool input: %w", err)
 			}
 			return Result{Type: "command", Command: in.Command, Explanation: in.Explanation}, nil
-		case "chat":
+		case toolChat:
 			var in struct {
 				Response string `json:"response"`
 			}

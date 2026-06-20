@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-package main
+package config
 
 import (
 	"encoding/binary"
@@ -24,11 +24,11 @@ func TestCleanKey(t *testing.T) {
 
 func TestReadyValidatesKey(t *testing.T) {
 	bom := string(rune(0xFEFF))
-	if err := (Config{Key: "sk-ant-ok_123-XYZ"}).ready(); err != nil {
+	if err := (Config{Key: "sk-ant-ok_123-XYZ"}).Ready(); err != nil {
 		t.Errorf("valid key rejected: %v", err)
 	}
 	for _, k := range []string{"", "sk-ant\nbad", bom + "sk", "sk ant", "sk\tant"} {
-		if err := (Config{Key: k}).ready(); err == nil {
+		if err := (Config{Key: k}).Ready(); err == nil {
 			t.Errorf("bad key %q should be rejected", k)
 		}
 	}
@@ -72,7 +72,6 @@ func TestDecodeText(t *testing.T) {
 	if got := decodeText(utf16be("sk-ant")); got != "sk-ant" {
 		t.Errorf("utf16be-bom: got %q", got)
 	}
-	// End-to-end: a UTF-16LE key file with trailing CRLF cleans to a valid key.
 	if got := cleanKey(decodeText(utf16le("sk-ant-xyz\r\n", true))); got != "sk-ant-xyz" {
 		t.Errorf("utf16 key end-to-end: got %q", got)
 	}

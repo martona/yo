@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-package main
+
+// Package config loads yo's per-invocation settings from ~/.yoconf and the
+// provider key files, tolerating the UTF-16/BOM encodings Windows tools emit.
+package config
 
 import (
 	"bytes"
@@ -20,13 +23,27 @@ type Config struct {
 	BaseURL  string
 }
 
-const defaultModel = "claude-sonnet-4-6"
+// providerDefaults holds the per-provider model and key-file fallbacks.
+type providerDefaults struct {
+	model   string
+	keyFile string // relative to the home dir
+}
 
-// loadConfig reads ~/.yoconf (if present), then falls back to a key file for the
-// API key. A missing key is NOT fatal here — it's checked at call time so that
-// --dry-run works without a key. v0.1 supports only the Anthropic provider.
-func loadConfig() (Config, error) {
-	cfg := Config{Provider: "anthropic", Model: defaultModel}
+// defaults mirror yoshell's conventions; override either via ~/.yoconf.
+var defaults = map[string]providerDefaults{
+	"anthropic": {model: "claude-sonnet-4-6", keyFile: ".anthropickey"},
+	"openai":    {model: "gpt-5.2", keyFile: ".openaikey"},
+}
+
+// inferOrder is the key-file probe order when ~/.yoconf names no provider.
+var inferOrder = []string{"anthropic", "openai"}
+
+// Load reads ~/.yoconf (if present), resolves the provider, then fills in the
+// default model and the key (from the provider's key file) when not already set.
+// A missing key is NOT fatal here — it's checked at call time (Ready) so that
+// previews work without a key.
+func Load() (Config, error) {
+	var cfg Config
 
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -37,34 +54,53 @@ func loadConfig() (Config, error) {
 		return cfg, err
 	}
 
-	if cfg.Provider != "anthropic" {
-		return cfg, fmt.Errorf("provider %q not supported yet (v0.1 is Anthropic-only)", cfg.Provider)
-	}
-	if cfg.Model == "" {
-		cfg.Model = defaultModel
+	if cfg.Provider == "" {
+		cfg.Provider = inferProvider(home)
 	}
 
+	d, ok := defaults[cfg.Provider]
+	if !ok {
+		return cfg, fmt.Errorf("provider %q not supported (use \"anthropic\" or \"openai\")", cfg.Provider)
+	}
+	if cfg.Model == "" {
+		cfg.Model = d.model
+	}
 	if cfg.Key == "" {
-		// Key-file fallback: ~/.anthropickey (single line).
-		// yoshell enforces 0600 perms on Unix; skipped on Windows (v0.1 target).
-		if data, err := os.ReadFile(filepath.Join(home, ".anthropickey")); err == nil {
+		// Key-file fallback (single line). yoshell enforces 0600 on Unix; skipped
+		// on Windows (v0.1 target). Decoded first to tolerate UTF-16/BOM files.
+		if data, err := os.ReadFile(filepath.Join(home, d.keyFile)); err == nil {
 			cfg.Key = cleanKey(decodeText(data))
 		}
 	}
 	return cfg, nil
 }
 
-// ready reports whether the config is usable for a live API call. Besides the
+// inferProvider picks a provider from whichever key file exists, in a stable
+// order; defaults to anthropic when none is found.
+func inferProvider(home string) string {
+	for _, p := range inferOrder {
+		if _, err := os.Stat(filepath.Join(home, defaults[p].keyFile)); err == nil {
+			return p
+		}
+	}
+	return "anthropic"
+}
+
+// Ready reports whether the config is usable for a live API call. Besides the
 // empty check it validates the key charset, turning the cryptic net/http
 // "invalid header field value" into an actionable message if a stray byte
 // survives decoding.
-func (c Config) ready() error {
+func (c Config) Ready() error {
 	if c.Key == "" {
-		return fmt.Errorf("no API key: set `key` in ~/.yoconf or write your key to ~/.anthropickey")
+		keyFile := "~/.anthropickey"
+		if d, ok := defaults[c.Provider]; ok {
+			keyFile = "~/" + d.keyFile
+		}
+		return fmt.Errorf("no API key: set `key` in ~/.yoconf or write your key to %s", keyFile)
 	}
 	for i := 0; i < len(c.Key); i++ {
 		if c.Key[i] < 0x21 || c.Key[i] > 0x7e { // API keys are printable ASCII
-			return fmt.Errorf("API key contains an invalid character — check ~/.anthropickey for stray whitespace or an unexpected encoding")
+			return fmt.Errorf("API key contains an invalid character - check your key file for stray whitespace or an unexpected encoding")
 		}
 	}
 	return nil

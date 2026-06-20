@@ -1,4 +1,4 @@
-# yo — PowerShell integration for the `yo` LLM command assistant.
+# yo - PowerShell integration for the `yo` LLM command assistant.
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Install: dot-source this from your $PROFILE, e.g.
@@ -12,6 +12,12 @@
 # contains shell metacharacters (| > < & ; etc.):
 #     yo 'what does | do in powershell'
 #     yo "find files and redirect with >"
+
+# Decode yo.exe's UTF-8 stdout correctly (and render Unicode in chat replies).
+# PowerShell decodes a native command's output using [Console]::OutputEncoding,
+# which defaults to the legacy OEM code page; without this, multi-byte UTF-8
+# (e.g. emoji) arrives as mojibake. No-BOM UTF-8; guarded for restricted hosts.
+try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch {}
 
 function yo {
     $bin = if ($env:YO_BIN) { $env:YO_BIN }

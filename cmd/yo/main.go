@@ -14,18 +14,10 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-)
 
-// Result is the normalized outcome, emitted as exactly one JSON line on stdout.
-// The shell snippet switches on Type: "command" → prefill, "chat" → print,
-// "error" → show the message.
-type Result struct {
-	Type        string `json:"type"` // "command" | "chat" | "error"
-	Command     string `json:"command,omitempty"`
-	Explanation string `json:"explanation,omitempty"`
-	Response    string `json:"response,omitempty"`
-	Message     string `json:"message,omitempty"` // populated when Type == "error"
-}
+	"github.com/martona/yo/internal/config"
+	"github.com/martona/yo/internal/llm"
+)
 
 func main() {
 	dryRun := flag.Bool("dry-run", false, "print the assembled API request to stdout and exit (no network or key needed)")
@@ -45,20 +37,26 @@ func main() {
 		}
 	}
 	if query == "" {
-		emit(Result{Type: "error", Message: "no query given (usage: yo <natural language>)"})
+		emit(llm.Result{Type: "error", Message: "no query given (usage: yo <natural language>)"})
 		os.Exit(2)
 	}
 
-	cfg, err := loadConfig()
+	cfg, err := config.Load()
 	if err != nil {
-		emit(Result{Type: "error", Message: err.Error()})
+		emit(llm.Result{Type: "error", Message: err.Error()})
+		os.Exit(1)
+	}
+
+	provider, err := llm.New(cfg)
+	if err != nil {
+		emit(llm.Result{Type: "error", Message: err.Error()})
 		os.Exit(1)
 	}
 
 	if *dryRun {
-		body, err := buildAnthropicRequest(cfg, query)
+		body, err := provider.Request(query)
 		if err != nil {
-			emit(Result{Type: "error", Message: err.Error()})
+			emit(llm.Result{Type: "error", Message: err.Error()})
 			os.Exit(1)
 		}
 		os.Stdout.Write(body)
@@ -66,20 +64,20 @@ func main() {
 		return
 	}
 
-	if err := cfg.ready(); err != nil {
-		emit(Result{Type: "error", Message: err.Error()})
+	if err := cfg.Ready(); err != nil {
+		emit(llm.Result{Type: "error", Message: err.Error()})
 		os.Exit(1)
 	}
 
-	// Ctrl-C cancels the in-flight request (M3 polish, cheap to wire now).
+	// Ctrl-C cancels the in-flight request.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	fmt.Fprint(os.Stderr, "thinking…")
-	res, err := callAnthropic(ctx, cfg, query)
-	fmt.Fprint(os.Stderr, "\r         \r") // clear the transient indicator
+	fmt.Fprint(os.Stderr, "thinking...")
+	res, err := provider.Generate(ctx, query)
+	fmt.Fprint(os.Stderr, "\r            \r") // clear the transient indicator
 	if err != nil {
-		emit(Result{Type: "error", Message: err.Error()})
+		emit(llm.Result{Type: "error", Message: err.Error()})
 		os.Exit(1)
 	}
 	emit(res)
@@ -88,12 +86,12 @@ func main() {
 // runCheck validates config and the decoded API key without any network call —
 // handy when fighting key-file encoding issues. It never prints the key itself.
 func runCheck() {
-	cfg, err := loadConfig()
+	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "config error:", err)
 		os.Exit(1)
 	}
-	if err := cfg.ready(); err != nil {
+	if err := cfg.Ready(); err != nil {
 		fmt.Fprintln(os.Stderr, "key error:", err)
 		os.Exit(1)
 	}
@@ -101,9 +99,8 @@ func runCheck() {
 }
 
 // emit writes a Result as one JSON line to stdout. Errors are emitted in the
-// same shape so the snippet can parse every outcome uniformly. HTML escaping is
-// off so command strings keep their literal >, <, & (ubiquitous in PowerShell).
-func emit(r Result) {
+// same shape so the snippet can parse every outcome uniformly.
+func emit(r llm.Result) {
 	if err := encodeResult(os.Stdout, r); err != nil {
 		fmt.Fprintln(os.Stdout, `{"type":"error","message":"failed to encode result"}`)
 	}
@@ -111,7 +108,7 @@ func emit(r Result) {
 
 // encodeResult writes r as one JSON line with HTML escaping off, so command
 // strings keep their literal >, <, & (ubiquitous in PowerShell).
-func encodeResult(w io.Writer, r Result) error {
+func encodeResult(w io.Writer, r llm.Result) error {
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	return enc.Encode(r)
