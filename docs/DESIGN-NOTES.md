@@ -11,7 +11,7 @@ A standalone, cross-platform LLM-enabled command assistant. Type `yo <natural la
 **v0.1 shipped and works on Windows + PowerShell.** `yo <text>` calls the LLM and prefills a PowerShell command on the next prompt (or prints a chat answer); live-verified on both Anthropic and OpenAI.
 
 - **Layout:** `cmd/yo/` (entry) + `internal/config` + `internal/llm` (a `Provider` interface with `anthropic.go` and `openai.go`). Build: `go build ./cmd/yo`. Tests live beside the code; `go test ./...` is green.
-- **Providers:** `anthropic` (Messages API) and `openai` (Responses API), selected via `provider` in `~/.yoconf` or inferred from which key file exists. See [`yoconf.example`](../yoconf.example).
+- **Providers:** `anthropic` (Messages API) and `openai` (Responses API), selected via `provider` in `~/.yoconf` or inferred from which key env var (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) is set. See [`yoconf.example`](../yoconf.example).
 - **Shell integration:** `shell/yo.ps1` — the `yo` function plus OnIdle next-prompt prefill. `.ps1` files are kept pure ASCII (PowerShell 5.1 chokes on smart punctuation), and the snippet forces `[Console]::OutputEncoding = UTF-8` so non-ASCII replies render. Key/config files are decoded tolerantly (UTF-8 / UTF-8-BOM / UTF-16), a Windows footgun.
 - **Built next:** scrollback context, then session state + continuation (see implementation plan).
 
@@ -166,7 +166,7 @@ Defense-in-depth, not perfection — say so in the docs.
 
 - **Targets:** native binary on Windows / macOS / Linux — **Windows first** (see [implementation plan](#implementation-plan)).
 - **Shells:** **PowerShell first**, then bash + zsh.
-- **Providers:** **Anthropic first**, then OpenAI; mirroring yoshell's key surfaces (`~/.anthropickey` / `~/.openaikey` / `~/.yoconf`-style config) as a convention.
+- **Providers:** **Anthropic first**, then OpenAI; API keys via the standard `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` env vars (with an optional `key` override in `~/.yoconf`). Key files (yoshell's `~/.anthropickey`) are deliberately not supported — env vars are the expected path.
 - **Core loop:** `yo <text>` → API → parse → prefill.
 - **Session memory:** per-session conversation context with a token budget — but persisted *across invocations* in a per-session state file, since the binary is short-lived (unlike yoshell's in-process history). Stateless in the first runnable version.
 - **Scrollback:** opt-in; tmux/zellij where present, a Windows-native source (transcript / console buffer) on Windows; graceful no-op fallback.
@@ -295,7 +295,7 @@ Milestones (M0 and M1 are independent; M0 is the long pole — start it first):
 
 - **M1 — Go binary (testable with no shell).**
   - CLI `yo <text...>` (join args; also read stdin).
-  - Config read on each call: `~/.yoconf` (provider/model/key/base_url) + key-file fallback (`~/.anthropickey`); home via `os.UserHomeDir()` (→ `%USERPROFILE%`). The Unix `0600` permission check is skipped on Windows.
+  - Config read on each call: `~/.yoconf` (provider/model/key/base_url) + the `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` env var for the key; home via `os.UserHomeDir()` (→ `%USERPROFILE%`).
   - Anthropic Messages client (`net/http` + `encoding/json`): port yoshell's **minimal Anthropic base prompt verbatim**; define the `command` + `chat` tools; `tool_choice:{"type":"any"}`; POST; parse the returned `tool_use`.
   - Binary↔snippet contract: one JSON line on **stdout** — `{"type":"command",…}` / `{"type":"chat",…}` / `{"type":"error",…}`; **stderr** carries only the transient "thinking…" indicator, so captured stdout stays clean.
   - *Deliverable:* `yo.exe "list files over 100MB"` prints the JSON — fully testable without PowerShell.
@@ -304,7 +304,7 @@ Milestones (M0 and M1 are independent; M0 is the long pole — start it first):
 
 - **M3 — Polish to "runnable."** Thinking indicator during the call; friendly errors (missing key / network / API) with no prefill; Ctrl-C cancels the in-flight request; sane defaults (model, `max_tokens`).
 
-**Done when:** on a clean Windows box — drop in the binary, add the profile snippet, write `~/.anthropickey` — `yo find every pdf modified this week` prefills a working `Get-ChildItem` one-liner you can run with Enter.
+**Done when:** on a clean Windows box — drop in the binary, add the profile snippet, set `$env:ANTHROPIC_API_KEY` — `yo find every pdf modified this week` prefills a working `Get-ChildItem` one-liner you can run with Enter.
 
 ### After v0.1 (rough order)
 

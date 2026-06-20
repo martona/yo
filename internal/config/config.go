@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package config loads yo's per-invocation settings from ~/.yoconf and the
-// provider key files, tolerating the UTF-16/BOM encodings Windows tools emit.
+// standard provider API-key environment variables.
 package config
 
 import (
@@ -23,25 +23,27 @@ type Config struct {
 	BaseURL  string
 }
 
-// providerDefaults holds the per-provider model and key-file fallbacks.
+// providerDefaults holds the per-provider model and the environment variable
+// that supplies the API key.
 type providerDefaults struct {
-	model   string
-	keyFile string // relative to the home dir
+	model  string
+	envKey string
 }
 
-// defaults mirror yoshell's conventions; override either via ~/.yoconf.
+// defaults: models mirror yoshell's conventions (override via ~/.yoconf); the
+// key env vars are the ecosystem standard used by the official SDKs.
 var defaults = map[string]providerDefaults{
-	"anthropic": {model: "claude-sonnet-4-6", keyFile: ".anthropickey"},
-	"openai":    {model: "gpt-5.2", keyFile: ".openaikey"},
+	"anthropic": {model: "claude-sonnet-4-6", envKey: "ANTHROPIC_API_KEY"},
+	"openai":    {model: "gpt-5.2", envKey: "OPENAI_API_KEY"},
 }
 
-// inferOrder is the key-file probe order when ~/.yoconf names no provider.
+// inferOrder is the probe order when ~/.yoconf names no provider.
 var inferOrder = []string{"anthropic", "openai"}
 
 // Load reads ~/.yoconf (if present), resolves the provider, then fills in the
-// default model and the key (from the provider's key file) when not already set.
-// A missing key is NOT fatal here — it's checked at call time (Ready) so that
-// previews work without a key.
+// default model and the API key (from the provider's env var) when not already
+// set in ~/.yoconf. A missing key is NOT fatal here — it's checked at call time
+// (Ready) so that previews work without a key.
 func Load() (Config, error) {
 	var cfg Config
 
@@ -55,7 +57,7 @@ func Load() (Config, error) {
 	}
 
 	if cfg.Provider == "" {
-		cfg.Provider = inferProvider(home)
+		cfg.Provider = inferProvider()
 	}
 
 	d, ok := defaults[cfg.Provider]
@@ -66,20 +68,18 @@ func Load() (Config, error) {
 		cfg.Model = d.model
 	}
 	if cfg.Key == "" {
-		// Key-file fallback (single line). yoshell enforces 0600 on Unix; skipped
-		// on Windows (v0.1 target). Decoded first to tolerate UTF-16/BOM files.
-		if data, err := os.ReadFile(filepath.Join(home, d.keyFile)); err == nil {
-			cfg.Key = cleanKey(decodeText(data))
-		}
+		// Standard env var (e.g. ANTHROPIC_API_KEY). cleanKey trims any stray
+		// whitespace; an env var is already a decoded OS string.
+		cfg.Key = cleanKey(os.Getenv(d.envKey))
 	}
 	return cfg, nil
 }
 
-// inferProvider picks a provider from whichever key file exists, in a stable
-// order; defaults to anthropic when none is found.
-func inferProvider(home string) string {
+// inferProvider picks a provider from whichever key env var is set, in a stable
+// order; defaults to anthropic when none is set.
+func inferProvider() string {
 	for _, p := range inferOrder {
-		if _, err := os.Stat(filepath.Join(home, defaults[p].keyFile)); err == nil {
+		if os.Getenv(defaults[p].envKey) != "" {
 			return p
 		}
 	}
@@ -88,26 +88,24 @@ func inferProvider(home string) string {
 
 // Ready reports whether the config is usable for a live API call. Besides the
 // empty check it validates the key charset, turning the cryptic net/http
-// "invalid header field value" into an actionable message if a stray byte
-// survives decoding.
+// "invalid header field value" into an actionable message.
 func (c Config) Ready() error {
 	if c.Key == "" {
-		keyFile := "~/.anthropickey"
+		envKey := "ANTHROPIC_API_KEY"
 		if d, ok := defaults[c.Provider]; ok {
-			keyFile = "~/" + d.keyFile
+			envKey = d.envKey
 		}
-		return fmt.Errorf("no API key: set `key` in ~/.yoconf or write your key to %s", keyFile)
+		return fmt.Errorf("no API key: set the %s environment variable (or `key` in ~/.yoconf)", envKey)
 	}
 	for i := 0; i < len(c.Key); i++ {
 		if c.Key[i] < 0x21 || c.Key[i] > 0x7e { // API keys are printable ASCII
-			return fmt.Errorf("API key contains an invalid character - check your key file for stray whitespace or an unexpected encoding")
+			return fmt.Errorf("API key contains an invalid character - check %s for stray whitespace", c.Provider)
 		}
 	}
 	return nil
 }
 
-// cleanKey keeps only the first line and trims surrounding whitespace. Encoding
-// concerns (UTF-16, BOM) are handled earlier by decodeText.
+// cleanKey keeps only the first line and trims surrounding whitespace.
 func cleanKey(s string) string {
 	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
 		s = s[:i]
@@ -118,7 +116,7 @@ func cleanKey(s string) string {
 // decodeText decodes raw file bytes to a string, tolerating the encodings that
 // Windows tools emit by default: a UTF-8 BOM, or UTF-16 (LE/BE, with or without
 // a BOM — PowerShell 5.1 redirection and Notepad's "Unicode" both produce this).
-// Plain UTF-8 passes through unchanged.
+// Used for ~/.yoconf, which a Windows editor may well have saved as UTF-16.
 func decodeText(b []byte) string {
 	switch {
 	case len(b) >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF:
@@ -129,7 +127,6 @@ func decodeText(b []byte) string {
 		return decodeUTF16(b[2:], binary.BigEndian)
 	case len(b) >= 2 && len(b)%2 == 0 && bytes.IndexByte(b, 0) >= 0:
 		// No BOM, but NUL bytes in even-length data → UTF-16LE (Windows default).
-		// Real UTF-8 text never contains a NUL byte.
 		return decodeUTF16(b, binary.LittleEndian)
 	default:
 		return string(b)
