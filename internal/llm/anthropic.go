@@ -101,7 +101,7 @@ func anthropicTools() []anthropicTool {
 	return []anthropicTool{
 		{
 			Name:        toolCommand,
-			Description: descCommand,
+			Description: descCommand + " " + descCommandBias,
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

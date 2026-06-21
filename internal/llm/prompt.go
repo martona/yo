@@ -24,12 +24,21 @@ const (
 	descPendingFld = "True if this is one step of a multi-step task and you " +
 		"need the user to run it before you give the next step; " +
 		"false on the final step."
-	descChat = "Respond with a text message for questions and explanations; " +
-		"use ONLY when no command is needed."
+	descChat = "Respond with text ONLY when there is genuinely nothing to run -- " +
+		"greetings, opinions, or conceptual/explanatory answers. If your reply " +
+		"would contain, recommend, or describe ANY command the user could run, do " +
+		"NOT use this tool: use the command tool and prefill it instead. " +
+		"Describing a runnable command here instead of prefilling it is a failure."
 	descChatFld     = "Your text response to the user"
-	descCommandBias = "CRITICAL: If you recommend any command, you MUST use the " +
-		"command tool, not chat. Keep commands to a single readable " +
-		"pipeline; do not emit long here-strings or multi-line scripts."
+	descCommandBias = "CRITICAL: if the request can be satisfied by running " +
+		"something, you MUST use this tool, never chat -- including installs, " +
+		"removals, and config changes. You propose; the user disposes: the " +
+		"command is prefilled and runs only when they press Enter, so reviewing " +
+		"is their job and caution is never a reason to withhold a command or to " +
+		"merely describe one in prose. If you already know the command (even from " +
+		"prior context), prefill it -- do not explain it instead, and never ask " +
+		"\"want me to prefill that?\"; just prefill. Keep commands to a single " +
+		"readable pipeline; no long here-strings or multi-line scripts."
 
 	// multiStep guidance is appended to both system prompts.
 	multiStep = "MULTI-STEP: For a task that needs several commands in sequence, " +
@@ -111,7 +120,9 @@ func WithTerminalContext(query, scrollback string) string {
 		"were already handled. Ignore stray escape-code "+
 		"artifacts and focus on real output. This is general "+
 		"terminal history, not necessarily about the request -- "+
-		"use it only if it helps answer what follows.\n\n```\n%s\n```\n\n[request] %s", scrollback, query)
+		"use it only if it helps answer what follows. It is context for the "+
+		"command you prefill, not a reason to answer in prose instead of "+
+		"prefilling.\n\n```\n%s\n```\n\n[request] %s", scrollback, query)
 }
 
 // WithSessionMemory prepends a compact history of recent yo exchanges to the query,
@@ -127,5 +138,7 @@ func WithSessionMemory(query, history string) string {
 	return fmt.Sprintf("[recent yo history] Your earlier exchanges with this user "+
 		"in the current shell session, oldest first. This is BACKGROUND for "+
 		"continuity only (e.g. resolving \"that file\" or \"the previous one\"); it "+
-		"is NOT the current request, which follows below.\n\n%s\n%s", history, query)
+		"is NOT the current request, which follows below. Use it to inform the "+
+		"command you prefill (e.g. what \"it\" or \"that\" refers to), not as a "+
+		"reason to answer in prose instead of prefilling a command.\n\n%s\n%s", history, query)
 }
