@@ -18,6 +18,8 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime/debug"
 	"strings"
 
 	"github.com/martona/yo/internal/config"
@@ -26,6 +28,7 @@ import (
 	"github.com/martona/yo/internal/scrollback"
 	"github.com/martona/yo/internal/session"
 	"github.com/martona/yo/internal/textwrap"
+	"github.com/martona/yo/shell"
 )
 
 // scrollbackMaxLines caps how much recent terminal output we fold into a query
@@ -38,6 +41,10 @@ const scrollbackMaxLines = 200
 // snippet only has to report its terminal width.
 var displayWidth int
 
+// version is the binary version, set via -ldflags "-X main.version=<tag>" in CI;
+// "dev" for local/un-tagged builds (with a runtime/debug BuildInfo fallback).
+var version = "dev"
+
 func main() {
 	dryRun := flag.Bool("dry-run", false, "print the assembled API request to stdout and exit (no network or key needed)")
 	check := flag.Bool("check", false, "validate config and the API key (no network), then exit")
@@ -45,10 +52,23 @@ func main() {
 	exitCode := flag.Int("exit", 0, "exit code of the just-run command (with --continue)")
 	dumpSB := flag.Bool("scrollback", false, "print the captured terminal scrollback and exit (debug)")
 	width := flag.Int("width", 0, "wrap prose output to this column width (0 = no wrap; set by the shell integration)")
+	versionFlag := flag.Bool("version", false, "print the version and exit")
+	configFlag := flag.Bool("config", false, "show the resolved configuration and exit")
+	initFlag := flag.String("init", "", "print the shell integration for <shell> (powershell) and exit")
+	flag.Usage = usage
 	flag.Parse()
 	displayWidth = *width
 
 	switch {
+	case *versionFlag:
+		fmt.Println(versionString())
+		return
+	case *initFlag != "":
+		runInit(*initFlag)
+		return
+	case *configFlag:
+		runConfig()
+		return
 	case *check:
 		runCheck()
 		return
@@ -262,6 +282,90 @@ func recordResult(query string, res llm.Result) {
 		return
 	}
 	session.Append(os.Getenv("YO_SESSION"), ex)
+}
+
+// usage prints curated help (set as flag.Usage, so it also drives -h / --help).
+func usage() {
+	fmt.Print(`yo - natural-language command assistant for PowerShell.
+
+Usage:
+  yo <natural language>     Get a command prefilled at your prompt, or a chat answer.
+  yo --init powershell      Print the shell integration (for your $PROFILE).
+  yo --version              Print the version.
+  yo --check                Validate config and the API key (no network).
+  yo --config               Show the resolved configuration.
+  yo --dry-run <text>       Print the assembled API request (no key or network).
+
+One-time setup:
+  Add to your $PROFILE:
+      if (Get-Command yo -ErrorAction SilentlyContinue) { yo --init powershell | Out-String | iex }
+  Set an API key:
+      $env:ANTHROPIC_API_KEY = "sk-ant-..."   (or OPENAI_API_KEY)
+
+Config file: ~/.yoconf (provider, model, key, base_url, memory).
+Safety: nothing runs until you read the command and press Enter.
+`)
+}
+
+// versionString resolves the build version: the -ldflags value if set, else the
+// module version or short VCS revision from build info, else "dev".
+func versionString() string {
+	if version != "dev" {
+		return version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		if v := bi.Main.Version; v != "" && v != "(devel)" {
+			return v
+		}
+		for _, s := range bi.Settings {
+			if s.Key == "vcs.revision" {
+				rev := s.Value
+				if len(rev) > 12 {
+					rev = rev[:12]
+				}
+				return "dev+" + rev
+			}
+		}
+	}
+	return version
+}
+
+// runInit prints the embedded shell-integration snippet for the named shell, to be
+// sourced from the user's profile (e.g. `yo --init powershell | Out-String | iex`).
+func runInit(shellName string) {
+	switch strings.ToLower(shellName) {
+	case "powershell", "pwsh":
+		fmt.Print(shell.PowerShell)
+	default:
+		fmt.Fprintf(os.Stderr, "yo: unknown shell %q (supported: powershell)\n", shellName)
+		os.Exit(2)
+	}
+}
+
+// runConfig prints the resolved configuration (no network, no key required).
+func runConfig() {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "config error:", err)
+		os.Exit(1)
+	}
+	key := "not set"
+	if cfg.Key != "" {
+		key = fmt.Sprintf("set (%d chars)", len(cfg.Key))
+	}
+	mem := "off"
+	if cfg.Memory {
+		mem = "on"
+	}
+	yoconf := "not found"
+	if home, err := os.UserHomeDir(); err == nil {
+		p := filepath.Join(home, ".yoconf")
+		if _, statErr := os.Stat(p); statErr == nil {
+			yoconf = p
+		}
+	}
+	fmt.Printf("provider: %s\nmodel:    %s\nkey:      %s\nmemory:   %s\nyoconf:   %s\n",
+		cfg.Provider, cfg.Model, key, mem, yoconf)
 }
 
 // runCheck validates config and the API key without any network call.

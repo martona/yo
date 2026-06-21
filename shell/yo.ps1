@@ -1,8 +1,10 @@
 # yo - PowerShell integration for the `yo` LLM command assistant.
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Install: dot-source this from your $PROFILE, AFTER any custom prompt setup:
-#     . "C:\path\to\yo\shell\yo.ps1"
+# Install: add this to your $PROFILE so the integration loads every session,
+# version-locked to the binary (it is emitted by `yo --init`, so it never goes stale):
+#     if (Get-Command yo -ErrorAction SilentlyContinue) { yo --init powershell | Out-String | iex }
+# (For development you can also dot-source this file directly: . C:\path\to\yo\shell\yo.ps1)
 # Then just type:
 #     yo list every pdf modified this week
 #
