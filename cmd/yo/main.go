@@ -46,6 +46,10 @@ var displayWidth int
 // "dev" for local/un-tagged builds (with a runtime/debug BuildInfo fallback).
 var version = "dev"
 
+// debugOn mirrors cfg.Debug for the current run; when set, dbg() traces the
+// scaffolding around each LLM call to stderr. Set once, right after config load.
+var debugOn bool
+
 func main() {
 	dryRun := flag.Bool("dry-run", false, "print the assembled API request to stdout and exit (no network or key needed)")
 	check := flag.Bool("check", false, "validate config and the API key (no network), then exit")
@@ -107,6 +111,7 @@ func main() {
 		emit(llm.Result{Type: "error", Message: err.Error()})
 		os.Exit(1)
 	}
+	debugOn = cfg.Debug
 	provider, err := llm.New(cfg)
 	if err != nil {
 		emit(llm.Result{Type: "error", Message: err.Error()})
@@ -115,14 +120,20 @@ func main() {
 
 	// Opportunistic terminal context (redacted): fold recent screen output into the
 	// query so "why did that fail?" works. No-op outside zellij.
+	preLen := len(query)
 	query = withScrollback(query)
+	sbLen := len(query) - preLen
 
 	// Cross-call memory: prepend a compact history of recent yo exchanges (no-op when
 	// disabled or empty). Applied after scrollback so the framing nests to a single
 	// [request]. The exchange itself is recorded after we have a result, below.
+	memLen := 0
 	if cfg.Memory {
+		preLen = len(query)
 		query = llm.WithSessionMemory(query, session.Render(session.Recent(os.Getenv("YO_SESSION"))))
+		memLen = len(query) - preLen
 	}
+	dbg("-> %s/%s  q=%q  [scrollback +%dch, memory +%dch]", cfg.Provider, cfg.Model, rawQuery, sbLen, memLen)
 
 	if *dryRun {
 		body, err := provider.Request(query)
@@ -145,6 +156,7 @@ func main() {
 		emit(llm.Result{Type: "error", Message: err.Error()})
 		os.Exit(1)
 	}
+	dbgResult(res)
 
 	// A pending command opens a fresh continuation chain (stored under the RAW
 	// query, not the context-augmented one). A terminal result -- a chat or a
@@ -180,6 +192,7 @@ func runContinue(exitCode int, dryRun bool) {
 		emit(llm.Result{Type: "error", Message: err.Error()})
 		os.Exit(1)
 	}
+	debugOn = cfg.Debug
 	provider, err := llm.New(cfg)
 	if err != nil {
 		emit(llm.Result{Type: "error", Message: err.Error()})
@@ -194,7 +207,10 @@ func runContinue(exitCode int, dryRun bool) {
 	// just-run step's command and output are on screen, so folding the capture in
 	// lets the model react to real output, not just the exit code. No-op outside
 	// zellij; symmetric with the initial query path in main().
+	preLen := len(query)
 	query = withScrollback(query)
+	dbg("-> continue %s/%s  exit=%d steps=%d ran=%q  [scrollback +%dch]",
+		cfg.Provider, cfg.Model, exitCode, len(st.Steps), clip(os.Getenv("YO_RAN"), 80), len(query)-preLen)
 
 	if dryRun {
 		body, err := provider.Request(query)
@@ -217,6 +233,7 @@ func runContinue(exitCode int, dryRun bool) {
 		emit(llm.Result{Type: "error", Message: err.Error()})
 		os.Exit(1)
 	}
+	dbgResult(res)
 
 	if res.Type == "command" {
 		st.AddStep(res.Command, res.Explanation)
@@ -245,6 +262,40 @@ func generate(p llm.Provider, query string) (llm.Result, error) {
 	res, err := p.Generate(ctx, query)
 	fmt.Fprint(os.Stderr, "\r            \r") // clear the transient indicator
 	return res, err
+}
+
+// dbg writes a one-line trace to stderr (never stdout -- that's the JSON contract)
+// when debug is enabled (`debug true` in ~/.yoconf or $env:YO_DEBUG). It surfaces
+// the scaffolding around each LLM call: provider/model, the query, the SIZES of any
+// attached context (never the scrollback or command output itself), and the response
+// type + pending flag -- enough to see whether the model asked for a continuation.
+func dbg(format string, args ...any) {
+	if !debugOn {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "yo[debug] "+format+"\n", args...)
+}
+
+// dbgResult traces a parsed result's scaffolding: type, the pending flag, and a
+// clipped preview of the command or chat text. No-op unless debug is on.
+func dbgResult(res llm.Result) {
+	switch res.Type {
+	case "command":
+		dbg("<- command pending=%v  %q", res.Pending, clip(res.Command, 120))
+	case "chat":
+		dbg("<- chat  %q", clip(res.Response, 120))
+	default:
+		dbg("<- %s", res.Type)
+	}
+}
+
+// clip collapses newlines and truncates s to n runes for a one-line debug preview.
+func clip(s string, n int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "..."
+	}
+	return s
 }
 
 // withScrollback folds redacted terminal scrollback into the query. Capture is a
@@ -314,7 +365,9 @@ Exit codes:
   1   runtime error (bad config, missing/invalid key, network or API failure).
   2   usage error (no query given, or an unknown --init shell).
 
-Config file: ~/.yoconf (provider, model, key, base_url, memory).
+Config file: ~/.yoconf (provider, model, key, base_url, memory, debug).
+Debug: set "debug true" in ~/.yoconf (or $env:YO_DEBUG) to trace each LLM call's
+       request/response scaffolding to stderr.
 Safety: nothing runs until you read the command and press Enter.
 `)
 }
@@ -369,6 +422,10 @@ func runConfig() {
 	if cfg.Memory {
 		mem = "on"
 	}
+	dbgState := "off"
+	if cfg.Debug {
+		dbgState = "on"
+	}
 	yoconf := "not found"
 	if home, err := os.UserHomeDir(); err == nil {
 		p := filepath.Join(home, ".yoconf")
@@ -376,8 +433,8 @@ func runConfig() {
 			yoconf = p
 		}
 	}
-	fmt.Printf("provider: %s\nmodel:    %s\nkey:      %s\nmemory:   %s\nyoconf:   %s\n",
-		cfg.Provider, cfg.Model, key, mem, yoconf)
+	fmt.Printf("provider: %s\nmodel:    %s\nkey:      %s\nmemory:   %s\ndebug:    %s\nyoconf:   %s\n",
+		cfg.Provider, cfg.Model, key, mem, dbgState, yoconf)
 }
 
 // runSetup runs the interactive installer (or uninstaller) by shelling out to pwsh
@@ -442,7 +499,11 @@ func runCheck() {
 	if cfg.Memory {
 		mem = "on"
 	}
-	fmt.Printf("OK  provider=%s  model=%s  memory=%s  key=%d chars (decoded & valid)\n", cfg.Provider, cfg.Model, mem, len(cfg.Key))
+	dbgState := "off"
+	if cfg.Debug {
+		dbgState = "on"
+	}
+	fmt.Printf("OK  provider=%s  model=%s  memory=%s  debug=%s  key=%d chars (decoded & valid)\n", cfg.Provider, cfg.Model, mem, dbgState, len(cfg.Key))
 }
 
 // emit writes a Result as one JSON line to stdout. Errors are emitted in the

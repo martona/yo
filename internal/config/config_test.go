@@ -34,6 +34,23 @@ func TestReadyValidatesKey(t *testing.T) {
 	}
 }
 
+func TestTruthy(t *testing.T) {
+	// Drives the default-off `debug` directive and the $env:YO_DEBUG override:
+	// blank/0/false/off/no (case- and whitespace-insensitive) are off, all else on.
+	on := []string{"true", "1", "on", "yes", "TRUE", "On", " yes ", "anything"}
+	off := []string{"", "0", "false", "off", "no", "FALSE", " off ", "   "}
+	for _, s := range on {
+		if !truthy(s) {
+			t.Errorf("truthy(%q) = false, want true", s)
+		}
+	}
+	for _, s := range off {
+		if truthy(s) {
+			t.Errorf("truthy(%q) = true, want false", s)
+		}
+	}
+}
+
 func TestDecodeText(t *testing.T) {
 	utf16le := func(s string, withBOM bool) []byte {
 		var out []byte

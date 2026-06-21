@@ -22,6 +22,7 @@ type Config struct {
 	Key      string
 	BaseURL  string
 	Memory   bool // cross-call session memory; default on, "memory false" in ~/.yoconf disables
+	Debug    bool // trace LLM request/response scaffolding to stderr; off by default ("debug true" or $env:YO_DEBUG)
 }
 
 // providerDefaults holds the per-provider model and the environment variable
@@ -74,7 +75,24 @@ func Load() (Config, error) {
 		// whitespace; an env var is already a decoded OS string.
 		cfg.Key = cleanKey(os.Getenv(d.envKey))
 	}
+	// $env:YO_DEBUG overrides the yoconf `debug` directive, for quick per-session
+	// toggling without editing the file (truthy = on; blank/0/false/off/no = off).
+	if v, ok := os.LookupEnv("YO_DEBUG"); ok {
+		cfg.Debug = truthy(v)
+	}
 	return cfg, nil
+}
+
+// truthy interprets a config flag value: blank, 0, false, off, and no are false;
+// anything else is true. Used for the default-off `debug` directive (memory keeps
+// its own default-on parsing).
+func truthy(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "0", "false", "off", "no":
+		return false
+	default:
+		return true
+	}
 }
 
 // inferProvider picks a provider from whichever key env var is set, in a stable
@@ -185,6 +203,8 @@ func readYoconf(path string, cfg *Config) error {
 			default:
 				cfg.Memory = true
 			}
+		case "debug":
+			cfg.Debug = truthy(value)
 		}
 	}
 	return nil
