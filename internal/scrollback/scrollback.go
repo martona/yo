@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package scrollback captures recent terminal output for context, opportunistically
-// via the zellij multiplexer (the only candidate on Windows). It is best-effort:
-// outside zellij, or on any failure, Capture returns "" and the caller proceeds
-// without context. No secret redaction yet — that's a later, separable layer.
+// Package scrollback captures recent terminal output for context. Sources, in
+// precedence order: the zellij multiplexer (resolved screen + full scrollback, any
+// platform) and, as a fallback, the Windows console buffer read directly via the
+// Console API (the visible viewport under Windows Terminal/ConPTY, the full buffer
+// under classic conhost). There is no equivalent on macOS/Linux, where the screen
+// lives in the terminal emulator's private memory and a multiplexer is the only
+// source. Best-effort: on any failure Capture returns "" and the caller proceeds
+// without context. Redaction is applied separately by the caller.
 package scrollback
 
 import (
@@ -15,10 +19,24 @@ import (
 	"time"
 )
 
-// Capture returns recent terminal output when running inside zellij, stripped of
-// ANSI escapes and trimmed to the last maxLines. Returns "" when not in zellij or
-// on any error (never fatal).
+// Capture returns recent terminal output, stripped of ANSI escapes and trimmed to
+// the last maxLines. It prefers zellij (deep scrollback); failing that it reads the
+// Windows console buffer (a no-op on other OSes). Returns "" when no source is
+// available or on any error (never fatal).
 func Capture(maxLines int) string {
+	raw := captureZellij()
+	if raw == "" {
+		raw = consoleCapture(maxLines) // Windows console buffer; "" elsewhere
+	}
+	if raw == "" {
+		return ""
+	}
+	return lastLines(stripANSI(raw), maxLines)
+}
+
+// captureZellij returns the resolved screen + scrollback from a zellij session, or
+// "" when not in zellij or on any failure.
+func captureZellij() string {
 	if os.Getenv("ZELLIJ") == "" {
 		return "" // opportunistic: only when inside a zellij session
 	}
@@ -44,7 +62,7 @@ func Capture(maxLines int) string {
 	if err != nil {
 		return ""
 	}
-	return lastLines(stripANSI(string(data)), maxLines)
+	return string(data)
 }
 
 // ansiRe matches CSI (ESC [ ... final byte) and OSC (ESC ] ... BEL) escape
@@ -52,7 +70,8 @@ func Capture(maxLines int) string {
 var ansiRe = regexp.MustCompile("\x1b\\[[0-9;?]*[ -/]*[@-~]|\x1b\\][^\x07]*\x07")
 
 // stripANSI removes ANSI escape sequences and stray control characters (keeping
-// tabs and newlines), so the model sees clean text.
+// tabs and newlines), so the model sees clean text. (A no-op for console-buffer
+// text, which is already resolved cells.)
 func stripANSI(s string) string {
 	s = ansiRe.ReplaceAllString(s, "")
 	return strings.Map(func(r rune) rune {
@@ -66,8 +85,8 @@ func stripANSI(s string) string {
 	}, s)
 }
 
-// lastLines trims trailing blank space (zellij pads the dump with empty screen
-// rows) and returns at most the last max lines.
+// lastLines trims trailing blank space (the dump is padded with empty screen rows)
+// and returns at most the last max lines.
 func lastLines(s string, max int) string {
 	s = strings.TrimRight(s, " \t\r\n")
 	if s == "" {

@@ -31,9 +31,12 @@ func TestLastLines(t *testing.T) {
 	}
 }
 
-func TestCaptureNotInZellij(t *testing.T) {
+func TestCaptureZellijNotInZellij(t *testing.T) {
+	// Tested at the zellij-source level: Capture() now has a second source (the
+	// Windows console buffer), so a bare Capture() outside zellij is no longer
+	// deterministically empty on Windows.
 	t.Setenv("ZELLIJ", "")
-	if got := Capture(100); got != "" {
-		t.Errorf("expected empty when not in zellij, got %q", got)
+	if got := captureZellij(); got != "" {
+		t.Errorf("expected empty zellij capture when not in zellij, got %q", got)
 	}
 }
