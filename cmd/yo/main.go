@@ -309,6 +309,11 @@ One-time setup:
       if (Get-Command yo -ErrorAction SilentlyContinue) { yo --init powershell | Out-String | iex }
             then set $env:ANTHROPIC_API_KEY (or OPENAI_API_KEY).
 
+Exit codes:
+  0   success.
+  1   runtime error (bad config, missing/invalid key, network or API failure).
+  2   usage error (no query given, or an unknown --init shell).
+
 Config file: ~/.yoconf (provider, model, key, base_url, memory).
 Safety: nothing runs until you read the command and press Enter.
 `)
