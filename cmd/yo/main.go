@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
@@ -55,6 +56,8 @@ func main() {
 	versionFlag := flag.Bool("version", false, "print the version and exit")
 	configFlag := flag.Bool("config", false, "show the resolved configuration and exit")
 	initFlag := flag.String("init", "", "print the shell integration for <shell> (powershell) and exit")
+	setupFlag := flag.Bool("setup", false, "install or repair the shell integration (interactive) and exit")
+	uninstallFlag := flag.Bool("uninstall", false, "remove the shell integration from your profile and exit")
 	flag.Usage = usage
 	flag.Parse()
 	displayWidth = *width
@@ -68,6 +71,9 @@ func main() {
 		return
 	case *configFlag:
 		runConfig()
+		return
+	case *setupFlag || *uninstallFlag:
+		runSetup(*uninstallFlag)
 		return
 	case *check:
 		runCheck()
@@ -291,16 +297,17 @@ func usage() {
 Usage:
   yo <natural language>     Get a command prefilled at your prompt, or a chat answer.
   yo --init powershell      Print the shell integration (for your $PROFILE).
+  yo --setup                Install/repair the integration: profile, PSReadLine, key.
   yo --version              Print the version.
   yo --check                Validate config and the API key (no network).
   yo --config               Show the resolved configuration.
   yo --dry-run <text>       Print the assembled API request (no key or network).
 
 One-time setup:
-  Add to your $PROFILE:
+  Easiest:  yo --setup   (wires your $PROFILE, checks PSReadLine, prompts for a key)
+  Manual:   add to your $PROFILE -
       if (Get-Command yo -ErrorAction SilentlyContinue) { yo --init powershell | Out-String | iex }
-  Set an API key:
-      $env:ANTHROPIC_API_KEY = "sk-ant-..."   (or OPENAI_API_KEY)
+            then set $env:ANTHROPIC_API_KEY (or OPENAI_API_KEY).
 
 Config file: ~/.yoconf (provider, model, key, base_url, memory).
 Safety: nothing runs until you read the command and press Enter.
@@ -366,6 +373,53 @@ func runConfig() {
 	}
 	fmt.Printf("provider: %s\nmodel:    %s\nkey:      %s\nmemory:   %s\nyoconf:   %s\n",
 		cfg.Provider, cfg.Model, key, mem, yoconf)
+}
+
+// runSetup runs the interactive installer (or uninstaller) by shelling out to pwsh
+// with the embedded setup script -- the shell-native steps (profile path, PSReadLine,
+// user PATH) are PowerShell's job. Requires PowerShell 7+.
+func runSetup(uninstall bool) {
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "yo: cannot locate the yo binary:", err)
+		os.Exit(1)
+	}
+	// Run setup under the shell that invoked yo, so it configures THAT host's
+	// $PROFILE (Windows PowerShell 5.1 or pwsh 7+). Fall back to a PATH lookup.
+	host := parentShell()
+	if host == "" {
+		if p, e := exec.LookPath("pwsh"); e == nil {
+			host = p
+		} else if p, e := exec.LookPath("powershell"); e == nil {
+			host = p
+		}
+	}
+	if host == "" {
+		fmt.Fprintln(os.Stderr, "yo: setup needs PowerShell (pwsh 7+ or Windows PowerShell 5.1) on PATH.")
+		os.Exit(1)
+	}
+	tmp, err := os.CreateTemp("", "yo-setup-*.ps1")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "yo: setup error:", err)
+		os.Exit(1)
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.WriteString(shell.SetupPowerShell); err != nil {
+		tmp.Close()
+		fmt.Fprintln(os.Stderr, "yo: setup error:", err)
+		os.Exit(1)
+	}
+	tmp.Close()
+
+	cmd := exec.Command(host, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tmp.Name())
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	cmd.Env = append(os.Environ(), "YO_SETUP_BIN="+exe)
+	if uninstall {
+		cmd.Env = append(cmd.Env, "YO_SETUP_UNINSTALL=1")
+	}
+	if err := cmd.Run(); err != nil {
+		os.Exit(1)
+	}
 }
 
 // runCheck validates config and the API key without any network call.
