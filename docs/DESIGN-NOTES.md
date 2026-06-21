@@ -255,7 +255,7 @@ Tool calling makes the command a typed field, so the fence/prose/hedge failures 
 2. **Multiple tool calls in one turn** (observed on Anthropic). Detected and re-prompted: *"You provided multiple tool calls. Please respond with exactly one"* (yo.c:4372).
 3. **Over-long commands / here-docs.** Prevented by instruction, not parsing: *"Keep commands short and readable (prefer single-line). Do NOT emit large here-docs or long multi-line scripts. If a solution would be long, split into multiple steps using pending=true"* (yo.c:2731).
 
-**Decision for `yo`:** lean entirely on tool calling for extraction; keep the one-shot explanation retry and the single-tool-call guard as robustness; carry the "no here-docs — split instead" instruction (it also feeds Q4).
+**Decision for `yo`:** lean entirely on tool calling for extraction; carry the "no here-docs — split instead" instruction (it also feeds Q4). On the two robustness patches, the decision landed differently than first sketched: the explanation retry is **obviated** — `yo` makes `explanation` schema-required (Anthropic `required`, OpenAI `strict`), so the model can't omit it; the single-tool-call guard is **intentionally not ported** — with `tool_choice:any` `yo` takes the first `tool_use` (first-wins, `parseAnthropic`), since the first call is reliably the intended one and a re-prompt costs a round-trip for a rare case.
 
 ### 3. Response schema — RESOLVED
 

@@ -21,9 +21,12 @@ const (
 	descCommandFld = "The PowerShell command to execute"
 	descExplainFld = "Brief explanation of what this command does, shown to " +
 		"the user before the command"
-	descPendingFld = "True if this is one step of a multi-step task and you " +
-		"need the user to run it before you give the next step; " +
-		"false on the final step."
+	descPendingFld = "Set to true when you need to see this command's output " +
+		"before you can answer or decide the next action -- either one step of a " +
+		"sequence, or a single investigative command (e.g. Get-Disk, Test-Path, " +
+		"Get-Process) whose result you must read first. After the user runs it you " +
+		"will receive its terminal output and can then give the next command or " +
+		"answer with the chat tool. Set false on the final or only step."
 	descChat = "Respond with text ONLY when there is genuinely nothing to run -- " +
 		"greetings, opinions, or conceptual/explanatory answers. If your reply " +
 		"would contain, recommend, or describe ANY command the user could run, do " +
@@ -40,12 +43,31 @@ const (
 		"\"want me to prefill that?\"; just prefill. Keep commands to a single " +
 		"readable pipeline; no long here-strings or multi-line scripts."
 
-	// multiStep guidance is appended to both system prompts.
-	multiStep = "MULTI-STEP: For a task that needs several commands in sequence, " +
-		"issue ONE command at a time and set pending=true; after the user " +
-		"runs each, you will be told its exit code and can give the next " +
-		"step (set pending=false on the last). Do NOT chain steps together " +
-		"with && or ; -- one command per step."
+	// multiStep guidance is appended to both system prompts. It covers both the
+	// sequential-steps case and yoshell's "investigate first" case -- run a
+	// diagnostic with pending=true, read its output, then answer or continue.
+	multiStep = "MULTI-STEP & INVESTIGATE-FIRST: Set pending=true and issue ONE " +
+		"command at a time whenever a task has sequential steps, OR when you must " +
+		"see a command's output before you can answer or choose the next action " +
+		"(e.g. \"where is my USB drive mounted\" -> Get-Disk / Get-Partition with " +
+		"pending=true, then read the result). After each pending command you receive " +
+		"its terminal output and exit code; reply with the next command, or with the " +
+		"chat tool to give the user the answer once you have it. Set pending=false on " +
+		"the last or only step. Do NOT chain steps with && or ; -- one command per step."
+
+	// diagnostics is appended to both system prompts. yoshell fetches scrollback on
+	// demand via a tool; yo instead injects it as a [terminal context] block when it
+	// can be captured, so the model must be told to READ that block for "why did it
+	// fail" questions -- and, since yo has no on-demand fetch, never to fall back to
+	// asking the user to paste output.
+	diagnostics = "DIAGNOSTICS: When the user asks why something failed or what " +
+		"went wrong (\"why did that fail\", \"what happened\", \"that didn't work\", or " +
+		"mentions an error), recent terminal output is provided above as a " +
+		"[terminal context] block whenever it could be captured -- read it and answer " +
+		"from it; do NOT ask the user what they were doing. NEVER ask the user to " +
+		"paste logs, output, or errors. If no terminal context is present, prefill a " +
+		"command that surfaces the problem, or answer from what you know -- but never " +
+		"ask for a paste."
 )
 
 // anthropicSystemPrompt is intentionally minimal — Anthropic's tool descriptions
@@ -71,7 +93,9 @@ Do not ask "want me to prefill that command"; just do it if it might be useful.
 Do not use markdown formatting in plain-text response blocks; the text you output
 will be rendered on a terminal.
 
-%s`, model, multiStep)
+%s
+
+%s`, model, multiStep, diagnostics)
 }
 
 // openaiSystemPrompt biases hard toward commands with worked examples, because
@@ -104,7 +128,9 @@ machine, you MUST use the command tool. Examples that MUST use command:
 - "show running processes by memory" -> Get-Process | Sort-Object WS -Descending | Select-Object -First 20
 - "what's in this folder" -> Get-ChildItem
 
-%s`, model, multiStep)
+%s
+
+%s`, model, multiStep, diagnostics)
 }
 
 // WithTerminalContext prepends recent terminal output to the query as context,

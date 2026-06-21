@@ -88,7 +88,7 @@ func (s *State) SetLastExecuted(cmd string) {
 // (or finish). Plain text -> provider-agnostic.
 func (s *State) ContinuationQuery(lastExit int) string {
 	var b strings.Builder
-	b.WriteString("[continuation] You are guiding a multi-step PowerShell task, one command at a time.\n\n")
+	b.WriteString("[continuation] The user just ran a command you issued with pending=true. Use its result to continue.\n\n")
 	fmt.Fprintf(&b, "Original request: %s\n\n", s.Query)
 	b.WriteString("Commands run so far (most recent last):\n")
 	for i, st := range s.Steps {
@@ -104,7 +104,7 @@ func (s *State) ContinuationQuery(lastExit int) string {
 		}
 		b.WriteByte('\n')
 	}
-	fmt.Fprintf(&b, "\nThe last command exited with code %d (0 = success). ", lastExit)
-	b.WriteString("Provide the NEXT single command via the command tool, with pending=true if more steps remain or pending=false if it is the last. If the task is already complete, or the last step failed and you cannot recover, use the chat tool to explain.")
+	fmt.Fprintf(&b, "\nThe last command exited with code %d (0 = success); its terminal output is shown above if it was captured. ", lastExit)
+	b.WriteString("Decide from that result: if more steps remain, give the NEXT single command via the command tool with pending=true (pending=false if it is the last). If the output now answers the original request, or the task is complete, or the last step failed and you cannot recover, use the chat tool to give the user the answer or explanation.")
 	return b.String()
 }

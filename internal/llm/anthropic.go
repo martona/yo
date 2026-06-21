@@ -126,9 +126,12 @@ func anthropicTools() []anthropicTool {
 	}
 }
 
-// parseAnthropic maps the API response (or an error body) to a Result. It takes
-// the first tool_use block; multiple-tool-call handling is a later robustness
-// item (see DESIGN-NOTES Q2).
+// parseAnthropic maps the API response (or an error body) to a Result. With
+// tool_choice:any the model can occasionally emit more than one tool_use block;
+// we deliberately take the FIRST and ignore the rest (first-wins) rather than
+// re-prompting for exactly one as yoshell does -- the first tool call is reliably
+// the intended one, and a re-prompt would cost a round-trip for a rare case.
+// See DESIGN-NOTES "prompt handling" Q2.
 func parseAnthropic(body []byte, status int) (Result, error) {
 	var resp anthropicResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
