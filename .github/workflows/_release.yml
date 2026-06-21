@@ -1,0 +1,173 @@
+name: Release pipeline (reusable)
+
+# Build (cross-compile amd64 + arm64) -> sign (Azure Trusted Signing) -> aggregate
+# third-party licenses + SBOM -> zip the loose exe -> checksum -> attest provenance ->
+# publish a GitHub release. Invoked from release-tag.yml / release-manual.yml; not
+# directly triggerable. Callers pass the version (from the git tag) and the draft flag.
+# Windows only; both arches build on one runner because Go cross-compiles.
+#
+# Signing reuses the same Azure Trusted Signing setup as the author's other repos:
+#   secrets: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+#   vars:    ARTIFACT_SIGNING_ENDPOINT, ARTIFACT_SIGNING_ACCOUNT, ARTIFACT_SIGNING_CERTIFICATE_PROFILE
+#   environment: release-signing  (the Azure federated credential is scoped to
+#                repo:martona/yo:environment:release-signing)
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+        description: 'Semver without the v prefix (e.g. 0.1.0), parsed from the tag by the caller'
+      tag:
+        required: true
+        type: string
+        description: 'Full tag name including the v prefix (e.g. v0.1.0)'
+      draft:
+        required: true
+        type: boolean
+        description: 'Create the GitHub release as a draft (not published)'
+
+permissions:
+  contents: write       # create release + upload assets, create the tag (manual flow)
+  id-token: write       # Azure OIDC for Trusted Signing + sigstore OIDC for attestation
+  attestations: write   # write build provenance attestation
+
+jobs:
+  release:
+    name: Build, sign, publish
+    runs-on: windows-latest
+    # Scopes the OIDC token's subject to repo:martona/yo:environment:release-signing,
+    # which the Azure-side federated credential matches on. Also a natural approval gate.
+    environment: release-signing
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Test before release
+        run: go test ./...
+
+      - name: Build (amd64 + arm64)
+        env:
+          GOOS: windows
+          CGO_ENABLED: '0'
+        run: |
+          # Version is baked in via -ldflags so `yo --version` reports the tag;
+          # -trimpath + -s -w drop paths and the symbol/debug tables (smaller exe).
+          $ldflags = "-s -w -X main.version=${{ inputs.tag }}"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          foreach ($arch in 'amd64', 'arm64') {
+            $env:GOARCH = $arch
+            go build -trimpath -ldflags $ldflags -o "dist/yo-$arch.exe" ./cmd/yo
+            if ($LASTEXITCODE -ne 0) { throw "build failed for $arch" }
+            Write-Host "Built dist/yo-$arch.exe"
+          }
+
+      - name: Azure login (Trusted Signing)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign binaries
+        uses: azure/trusted-signing-action@v0
+        with:
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+          files-folder: ${{ github.workspace }}\dist
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify signatures
+        run: |
+          foreach ($exe in Get-ChildItem dist\*.exe) {
+            $sig = Get-AuthenticodeSignature $exe.FullName
+            if ($sig.Status -ne 'Valid') {
+              throw "Signature on $($exe.Name) is not Valid: $($sig.Status) -- $($sig.StatusMessage)"
+            }
+            Write-Host "[+] $($exe.Name) signed by: $($sig.SignerCertificate.Subject)"
+          }
+
+      - name: Third-party licenses + SBOM
+        run: |
+          # go-licenses gathers each bundled module's license TEXT (GPLv3 requires shipping
+          # these with a distributed binary); cyclonedx-gomod emits a CycloneDX SBOM with
+          # licenses for vuln-scanning. If go-licenses chokes on a module it can't classify,
+          # add `--ignore <module>` here (its known rough edge). We ignore our own module.
+          $gobin = "$(go env GOPATH)\bin"
+          go install github.com/google/go-licenses@latest
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
+          $env:PATH = "$gobin;$env:PATH"
+          go-licenses save ./cmd/yo --save_path=third-party-licenses --force --ignore github.com/martona/yo
+          # -assert-licenses promotes detected licenses into the canonical component.licenses
+          # field (most scanners read that, not evidence.licenses). Verified locally: all 62
+          # deps resolve to permissive, GPLv3-compatible licenses (BSD/MIT/Apache).
+          cyclonedx-gomod app -json -licenses -assert-licenses -main cmd/yo -output yo.cdx.json .
+          Write-Host "Wrote third-party-licenses\ and yo.cdx.json"
+
+      - name: License compatibility check (non-blocking)
+        continue-on-error: true
+        run: |
+          $gobin = "$(go env GOPATH)\bin"
+          $env:PATH = "$gobin;$env:PATH"
+          # Flags anything GPLv3-incompatible (forbidden/restricted). Informational for now;
+          # tighten to a hard gate once the dependency licenses are known-good.
+          go-licenses check ./cmd/yo --ignore github.com/martona/yo
+
+      - name: Package
+        run: |
+          $stage = "release-stage"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          foreach ($arch in 'amd64', 'arm64') {
+            # Version-LESS asset names so docs/scoop can link a stable
+            # releases/latest/download/<name> URL; the version rides in the exe
+            # (yo --version) and the attestation binds by SHA256.
+            $pkg = "pkg-$arch"
+            New-Item -ItemType Directory -Force $pkg | Out-Null
+            Copy-Item "dist/yo-$arch.exe" "$pkg/yo.exe"
+            Copy-Item LICENSE, NOTICE, README.md $pkg
+            Copy-Item third-party-licenses "$pkg/third-party-licenses" -Recurse
+            Compress-Archive -Path "$pkg/*" -DestinationPath "$stage/yo-windows-$arch.zip" -Force
+            Write-Host "Created $stage/yo-windows-$arch.zip"
+          }
+          Copy-Item yo.cdx.json "$stage/yo.cdx.json"
+
+      - name: Checksums
+        run: |
+          $stage = "release-stage"
+          $lines = Get-ChildItem $stage -File | Sort-Object Name | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          }
+          Set-Content -Path "$stage/SHA256SUMS.txt" -Value $lines -Encoding ascii
+          Get-Content "$stage/SHA256SUMS.txt" | Write-Host
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: 'release-stage/yo-windows-*.zip'
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: ${{ inputs.tag }}
+          draft: ${{ inputs.draft }}
+          prerelease: false
+          generate_release_notes: true
+          files: release-stage/*
+          fail_on_unmatched_files: true

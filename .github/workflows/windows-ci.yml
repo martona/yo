@@ -1,0 +1,88 @@
+name: Windows CI
+
+# Build + vet + test on every push/PR to master, plus the guards that yo's
+# interactive bits can't self-test: a PowerShell parse smoke of the integration
+# snippets and a pure-ASCII check (PS 5.1 chokes on non-ASCII .ps1). Cross-compiles
+# both shipped arches (amd64 + arm64) so a release build can't surprise us. No
+# signing/packaging here -- that's the release pipeline's job.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build, vet, test
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: gofmt (must be clean)
+        run: |
+          $bad = gofmt -l .
+          if ($bad) { Write-Error "gofmt needs running on:`n$($bad -join "`n")"; exit 1 }
+          Write-Host "gofmt clean"
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...
+
+      - name: Build (amd64)
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -o yo-amd64.exe ./cmd/yo
+
+      - name: Build (arm64, cross-compile)
+        env:
+          GOOS: windows
+          GOARCH: arm64
+          CGO_ENABLED: '0'
+        run: go build -o yo-arm64.exe ./cmd/yo
+
+      - name: PowerShell snippet parse smoke
+        run: |
+          $ok = $true
+          foreach ($f in 'shell/yo.ps1', 'shell/setup.ps1') {
+            $errs = $null; $toks = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f), [ref]$toks, [ref]$errs) | Out-Null
+            if ($errs) { Write-Host "PARSE ERRORS in ${f}:`n$($errs.Message -join "`n")"; $ok = $false }
+            else { Write-Host "OK  $f ($($toks.Count) tokens)" }
+          }
+          if (-not $ok) { exit 1 }
+
+      - name: .ps1 pure-ASCII check (PS 5.1 invariant)
+        run: |
+          $ok = $true
+          foreach ($f in 'shell/yo.ps1', 'shell/setup.ps1') {
+            $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $f))
+            $bad = @($bytes | Where-Object { $_ -gt 127 }).Count
+            if ($bad -gt 0) { Write-Host "NON-ASCII: $f has $bad byte(s) > 0x7F"; $ok = $false }
+            else { Write-Host "OK  $f is pure ASCII" }
+          }
+          if (-not $ok) { exit 1 }
