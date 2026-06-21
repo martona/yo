@@ -125,6 +125,14 @@ function yo {
         return
     }
 
+    # Bare `yo` with no query (and nothing piped in): show help, raw. Without this it
+    # would hit the JSON path below, calling the binary with no query -- which blocks
+    # reading stdin. ExpectingInput stays false for a bare call, true for `... | yo`.
+    if ($args.Count -eq 0 -and -not $MyInvocation.ExpectingInput) {
+        & $bin --help
+        return
+    }
+
     # Binary-level debug flags (--dry-run, --check, --scrollback): pass straight
     # through and print raw output; don't parse as a Result or prefill.
     if ($args.Count -gt 0 -and $args[0] -like '-*') {

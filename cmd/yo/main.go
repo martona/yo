@@ -95,7 +95,13 @@ func main() {
 
 	query := strings.TrimSpace(strings.Join(flag.Args(), " "))
 	if query == "" {
-		// Allow piping: `echo "list pdfs" | yo`
+		if stdinIsTerminal() {
+			// Bare interactive invocation: no query and nothing piped. Show help
+			// rather than blocking on a stdin read. (`echo "..." | yo` still works.)
+			usage()
+			return
+		}
+		// Piped or redirected stdin: read the query from it (`echo "list pdfs" | yo`).
 		if b, err := io.ReadAll(os.Stdin); err == nil {
 			query = strings.TrimSpace(string(b))
 		}
@@ -339,6 +345,19 @@ func recordResult(query string, res llm.Result) {
 		return
 	}
 	session.Append(os.Getenv("YO_SESSION"), ex)
+}
+
+// stdinIsTerminal reports whether stdin is an interactive console rather than a pipe
+// or a redirected file. A query-less `yo` with an interactive stdin shows help (no
+// blocking read); with piped/redirected stdin it reads the query from there. The
+// ModeCharDevice heuristic is correct on Windows (console vs pipe vs file); a Unix
+// port for bash/zsh may want golang.org/x/term for the rare edge cases.
+func stdinIsTerminal() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
 
 // usage prints curated help (set as flag.Usage, so it also drives -h / --help).
