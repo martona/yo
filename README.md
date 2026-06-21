@@ -155,6 +155,7 @@ every call. Every directive is optional; see [`yoconf.example`](yoconf.example).
 | `base_url` | provider default   | Proxy or OpenAI-compatible endpoint. |
 | `memory`   | `on`               | Cross-call session memory (`memory false` disables). |
 | `debug`    | `off`              | Trace each LLM call's scaffolding to stderr (see below). |
+| `prefill_space` | `off`         | Prefix prefilled commands with a leading space, so history tools that ignore space-prefixed lines (e.g. Atuin) skip them while `Get-History` still records them. |
 
 **Environment variables:** `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` supply the key (and
 pick the provider when none is configured). `YO_DEBUG` overrides the `debug` directive

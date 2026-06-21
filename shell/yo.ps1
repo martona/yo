@@ -90,7 +90,12 @@ function Invoke-YoResult([string]$json) {
     switch ($r.type) {
         'command' {
             if ($r.explanation) { Write-Host $r.explanation -ForegroundColor DarkGray }
-            Set-YoPrefill $r.command
+            # prefill_space (config): a leading space keeps the command out of history
+            # tools that ignore space-prefixed lines (e.g. Atuin), while Get-History
+            # still records it. Invoke-YoContinuation trims the space back off when it
+            # captures what ran, so the offered-vs-executed diff stays clean.
+            $cmd = if ($r.prefillSpace) { ' ' + $r.command } else { $r.command }
+            Set-YoPrefill $cmd
             if ($r.pending) {
                 $env:YO_STATE = $r.state
                 $global:YoArmed = $true
@@ -175,7 +180,10 @@ function Invoke-YoContinuation([bool]$ok) {
     # Pass the command the user ACTUALLY ran (edits included) so the model can
     # reconcile its suggestion against reality. Env var, not a flag, so the command's
     # metacharacters need no escaping; inherited by the child like YO_STATE.
-    $env:YO_RAN = if ($h) { $h.CommandLine } else { '' }
+    # TrimStart: if prefill_space prefixed the command, the line the user ran has a
+    # leading space that Get-History keeps; strip it so the suggested-vs-ran diff is
+    # clean (a manually typed leading space is insignificant anyway).
+    $env:YO_RAN = if ($h) { $h.CommandLine.TrimStart() } else { '' }
     $json = & $bin --continue --exit $code --width (Get-YoWidth)   # inherits $env:YO_STATE
     $env:YO_RAN = ''
     Invoke-YoResult $json

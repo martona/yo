@@ -38,3 +38,11 @@ provider anthropic
 # for a continuation. The stdout JSON contract is unaffected. $env:YO_DEBUG
 # overrides this for a single session (truthy = on).
 # debug true
+
+# Prefill with a leading space (optional; default OFF). When on, prefilled commands
+# get a single leading space. History tools that ignore space-prefixed lines (e.g.
+# Atuin) then skip them, while PowerShell's Get-History still records them -- so the
+# searchable history stays free of yo's suggestions but the session picture is whole.
+# PowerShell-specific: on bash/zsh, HISTCONTROL=ignorespace would also drop it from
+# the shell's own history. Verify your tool honors leading-space before relying on it.
+# prefill_space true

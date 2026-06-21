@@ -162,6 +162,7 @@ func main() {
 		emit(llm.Result{Type: "error", Message: err.Error()})
 		os.Exit(1)
 	}
+	res.PrefillSpace = cfg.PrefillSpace // snippet prefixes the prefill with a space (history hygiene)
 	dbgResult(res)
 
 	// A pending command opens a fresh continuation chain (stored under the RAW
@@ -239,6 +240,7 @@ func runContinue(exitCode int, dryRun bool) {
 		emit(llm.Result{Type: "error", Message: err.Error()})
 		os.Exit(1)
 	}
+	res.PrefillSpace = cfg.PrefillSpace
 	dbgResult(res)
 
 	if res.Type == "command" {
@@ -384,7 +386,7 @@ Exit codes:
   1   runtime error (bad config, missing/invalid key, network or API failure).
   2   usage error (no query given, or an unknown --init shell).
 
-Config file: ~/.yoconf (provider, model, key, base_url, memory, debug).
+Config file: ~/.yoconf (provider, model, key, base_url, memory, debug, prefill_space).
 Debug: set "debug true" in ~/.yoconf (or $env:YO_DEBUG) to trace each LLM call's
        request/response scaffolding to stderr.
 Safety: nothing runs until you read the command and press Enter.
@@ -445,6 +447,10 @@ func runConfig() {
 	if cfg.Debug {
 		dbgState = "on"
 	}
+	psState := "off"
+	if cfg.PrefillSpace {
+		psState = "on"
+	}
 	yoconf := "not found"
 	if home, err := os.UserHomeDir(); err == nil {
 		p := filepath.Join(home, ".yoconf")
@@ -452,8 +458,8 @@ func runConfig() {
 			yoconf = p
 		}
 	}
-	fmt.Printf("provider: %s\nmodel:    %s\nkey:      %s\nmemory:   %s\ndebug:    %s\nyoconf:   %s\n",
-		cfg.Provider, cfg.Model, key, mem, dbgState, yoconf)
+	fmt.Printf("provider: %s\nmodel:    %s\nkey:      %s\nmemory:   %s\ndebug:    %s\nprefill:  %s\nyoconf:   %s\n",
+		cfg.Provider, cfg.Model, key, mem, dbgState, psState, yoconf)
 }
 
 // runSetup runs the interactive installer (or uninstaller) by shelling out to pwsh

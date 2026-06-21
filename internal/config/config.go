@@ -23,6 +23,13 @@ type Config struct {
 	BaseURL  string
 	Memory   bool // cross-call session memory; default on, "memory false" in ~/.yoconf disables
 	Debug    bool // trace LLM request/response scaffolding to stderr; off by default ("debug true" or $env:YO_DEBUG)
+	// PrefillSpace prefixes prefilled commands with a leading space so history tools
+	// that skip space-prefixed lines (e.g. Atuin) don't record them, while PowerShell's
+	// Get-History still does. Off by default ("prefill_space true"). NOTE: on bash/zsh,
+	// HISTCONTROL=ignorespace would also drop the command from the shell's OWN history
+	// (not just Atuin), and any history-based continuation capture would miss it -- a
+	// future Unix port must capture via preexec/DEBUG, not `fc`.
+	PrefillSpace bool
 }
 
 // providerDefaults holds the per-provider model and the environment variable
@@ -205,6 +212,8 @@ func readYoconf(path string, cfg *Config) error {
 			}
 		case "debug":
 			cfg.Debug = truthy(value)
+		case "prefill_space":
+			cfg.PrefillSpace = truthy(value)
 		}
 	}
 	return nil

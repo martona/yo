@@ -21,5 +21,10 @@ type Result struct {
 	// $env:YO_STATE. Present iff a continuation is active; empty means "clear".
 	State string `json:"state,omitempty"`
 
+	// PrefillSpace tells the snippet to prefix the prefilled command with a leading
+	// space (history hygiene; see config.Config.PrefillSpace). Only meaningful for
+	// Type == "command"; the command string itself is left clean.
+	PrefillSpace bool `json:"prefillSpace,omitempty"`
+
 	Message string `json:"message,omitempty"` // populated when Type == "error"
 }
