@@ -1,0 +1,16 @@
+# Line-ending policy: this repo is LF-canonical (everything committed is LF).
+#
+# Without this, GitHub's Windows runners -- which default to core.autocrlf=true --
+# convert the LF blobs to CRLF on checkout, and `gofmt -l` then flags every .go file
+# (CI gofmt gate fails). An explicit `eol=lf` attribute overrides core.autocrlf and
+# pins the working tree to LF everywhere, matching what's stored. No local churn:
+# the working tree is already LF.
+* text=auto eol=lf
+
+# Toolchain-critical: Go source must be LF (gofmt's canonical form). PowerShell is
+# fine with LF on both 5.1 and 7+, so the .ps1 snippets stay LF too.
+*.go   text eol=lf
+*.ps1  text eol=lf
+
+# Never normalize the built binary.
+*.exe  binary
