@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 # yo setup - invoked by `yo --setup` (the binary runs this under pwsh). Reads the
 # binary path from $env:YO_SETUP_BIN; $env:YO_SETUP_UNINSTALL=1 removes the wiring.
 # Idempotent, and confirm-before-change: every step that would modify something
