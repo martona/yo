@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -117,7 +118,7 @@ func TestSetupRunnerZshWritesProfileAndYoconfThenUninstalls(t *testing.T) {
 	if want := "provider anthropic\nkey sk-ant-test\n"; string(yoconfData) != want {
 		t.Fatalf(".yoconf = %q, want %q", yoconfData, want)
 	}
-	if info, err := os.Stat(yoconf); err == nil && info.Mode().Perm() != 0o600 {
+	if info, err := os.Stat(yoconf); runtime.GOOS != "windows" && err == nil && info.Mode().Perm() != 0o600 {
 		t.Fatalf(".yoconf mode = %v, want 0600", info.Mode().Perm())
 	}
 
