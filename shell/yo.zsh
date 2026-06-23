@@ -61,7 +61,9 @@ _yo_color_enabled() {
 _yo_info() {
     emulate -L zsh
     if _yo_color_enabled; then
-        printf '\033[90m%s\033[0m\n' "$1"
+        # ANSI 90 ("bright black") is often too dark on macOS dark themes, while
+        # 37 reads like normal text. Use a 256-color mid gray for secondary text.
+        printf '\033[38;5;246m%s\033[0m\n' "$1"
     else
         print -r -- "$1"
     fi
