@@ -2,6 +2,8 @@
 package main
 
 import (
+	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -68,5 +70,67 @@ func TestRemoveZshManagedLine(t *testing.T) {
 	}
 	if want := "before\nafter\n"; got != want {
 		t.Fatalf("removeZshInit() = %q, want %q", got, want)
+	}
+}
+
+func TestSetupRunnerZshWritesProfileAndYoconfThenUninstalls(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	zdot := filepath.Join(t.TempDir(), "zdot")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(zdot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("ZDOTDIR", zdot)
+	t.Setenv("SHELL", "/bin/zsh")
+	t.Setenv("YO_SHELL", "zsh")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+
+	var out bytes.Buffer
+	runner := newSetupRunner(strings.NewReader("Y\nY\n1\nsk-ant-test\n"), &out, &out)
+	if err := runner.run(false); err != nil {
+		t.Fatal(err)
+	}
+
+	zshrc := filepath.Join(zdot, ".zshrc")
+	zshrcData, err := os.ReadFile(zshrc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{zshManagedStart, zshInitMarker, "YO_BIN=", zshManagedEnd} {
+		if !strings.Contains(string(zshrcData), want) {
+			t.Fatalf(".zshrc missing %q:\n%s", want, zshrcData)
+		}
+	}
+
+	yoconf := filepath.Join(home, ".yoconf")
+	yoconfData, err := os.ReadFile(yoconf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "provider anthropic\nkey sk-ant-test\n"; string(yoconfData) != want {
+		t.Fatalf(".yoconf = %q, want %q", yoconfData, want)
+	}
+	if info, err := os.Stat(yoconf); err == nil && info.Mode().Perm() != 0o600 {
+		t.Fatalf(".yoconf mode = %v, want 0600", info.Mode().Perm())
+	}
+
+	out.Reset()
+	runner = newSetupRunner(strings.NewReader("Y\n"), &out, &out)
+	if err := runner.run(true); err != nil {
+		t.Fatal(err)
+	}
+	zshrcData, err = os.ReadFile(zshrc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(zshrcData), zshInitMarker) || strings.Contains(string(zshrcData), zshManagedStart) {
+		t.Fatalf("uninstall left zsh init marker:\n%s", zshrcData)
+	}
+	if got, err := os.ReadFile(yoconf); err != nil || string(got) != string(yoconfData) {
+		t.Fatalf("uninstall changed .yoconf: got %q err %v", got, err)
 	}
 }

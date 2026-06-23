@@ -3,6 +3,9 @@ package main
 
 import (
 	"bytes"
+	"flag"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -86,4 +89,55 @@ func TestEncodeResultShellAssignments(t *testing.T) {
 			t.Fatalf("shell output missing %q:\n%s", want, out)
 		}
 	}
+}
+
+func TestDryRunUsesZshPromptProfile(t *testing.T) {
+	home := t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcessMain", "--", "--dry-run", "list files here")
+	cmd.Env = append(os.Environ(),
+		"YO_HELPER_MAIN=1",
+		"HOME="+home,
+		"YO_SHELL=zsh",
+		"SHELL=/bin/zsh",
+		"ZELLIJ=",
+		"TMUX=",
+		"ANTHROPIC_API_KEY=",
+		"OPENAI_API_KEY=",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go run --dry-run failed: %v\n%s", err, out)
+	}
+	body := string(out)
+	for _, want := range []string{
+		"zsh prompt on a Unix-like system",
+		"POSIX/Unix shell command",
+		"list files here",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("dry-run output missing %q:\n%s", want, body)
+		}
+	}
+	for _, leak := range []string{"PowerShell prompt on Windows", "Get-ChildItem"} {
+		if strings.Contains(body, leak) {
+			t.Fatalf("dry-run output leaked PowerShell prompt %q:\n%s", leak, body)
+		}
+	}
+}
+
+func TestHelperProcessMain(t *testing.T) {
+	if os.Getenv("YO_HELPER_MAIN") != "1" {
+		return
+	}
+	args := []string{"yo"}
+	for i, arg := range os.Args {
+		if arg == "--" {
+			args = append(args, os.Args[i+1:]...)
+			break
+		}
+	}
+	os.Args = args
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	main()
+	os.Exit(0)
 }

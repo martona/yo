@@ -438,14 +438,22 @@ func versionString() string {
 // sourced from the user's profile (e.g. `yo --init powershell | Out-String | iex`,
 // or `eval "$(yo --init zsh)"`).
 func runInit(shellName string) {
-	switch strings.ToLower(shellName) {
-	case "powershell", "pwsh":
-		fmt.Print(shell.PowerShell)
-	case "zsh":
-		fmt.Print(shell.Zsh)
-	default:
+	snippet, ok := snippetForShell(shellName)
+	if !ok {
 		fmt.Fprintf(os.Stderr, "yo: unknown shell %q (supported: powershell, zsh)\n", shellName)
 		os.Exit(2)
+	}
+	fmt.Print(snippet)
+}
+
+func snippetForShell(shellName string) (string, bool) {
+	switch strings.ToLower(shellName) {
+	case "powershell", "pwsh":
+		return shell.PowerShell, true
+	case "zsh":
+		return shell.Zsh, true
+	default:
+		return "", false
 	}
 }
 

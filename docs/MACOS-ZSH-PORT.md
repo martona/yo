@@ -437,6 +437,28 @@ Manual interactive checklist:
 - No multiplexer degrades gracefully.
 - `prefill_space true` does not break continuation.
 
+### Phase 6 Result (2026-06-23)
+
+Automated local coverage now includes:
+
+- `--init zsh` snippet selection and zsh syntax parsing.
+- CLI `--dry-run` using the zsh/POSIX prompt profile when `YO_SHELL=zsh`.
+- `--output sh` quoting and hostile shell strings.
+- zsh result parsing with a fake `YO_BIN`.
+- zsh continuation state, exit-code forwarding, and edited-command capture.
+- zsh raw-line rewriting for unquoted metacharacters, with flags and
+  already-quoted queries left alone.
+- zsh `eval` safety for quoted result assignments containing command
+  substitution text.
+- zsh re-sourcing idempotence for hooks and ZLE widgets.
+- temp `HOME` / `ZDOTDIR` setup and uninstall, including shared provider/key
+  writes to `~/.yoconf` and confirmation that uninstall leaves config alone.
+- existing prompt-profile, tmux scrollback, redaction, session, and wrapping
+  tests.
+
+Manual macOS/zsh checks were completed successfully for prefill/edit/run, chat,
+continuation, Ctrl-C cancellation, and `prefill_space`.
+
 ## Phase 7: macOS Builds And Docs
 
 Add darwin build legs:
