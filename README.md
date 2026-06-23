@@ -31,8 +31,7 @@ That second paragraph is the model **reading the command's output and answering*
   macOS **zsh**. Providers: **Anthropic** (default) and **OpenAI**.
 - **Release builds:** Windows zips are Authenticode-signed. macOS zips are
   Developer ID-signed and notarized by Apple.
-- **Planned:** Linux builds and bash integration; `winget` / `scoop` package
-  submission.
+- **Planned:** Linux builds and bash integration; `winget` package submission; brew tap for macOS.
 
 ---
 

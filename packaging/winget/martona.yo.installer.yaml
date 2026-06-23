@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
 PackageIdentifier: martona.yo
-PackageVersion: 0.1.1
+PackageVersion: 0.2.0
 # yo ships as a zip containing a single portable exe; winget extracts it and
 # registers `yo` as a portable command alias (added to its managed PATH).
 InstallerType: zip
@@ -12,10 +12,10 @@ Commands:
   - yo
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/martona/yo/releases/download/v0.1.1/yo-windows-amd64.zip
-    InstallerSha256: 336D03533BB98BCF254F0D408410A51056E4A0AF5709B3710183DE16AA51BFA0
+    InstallerUrl: https://github.com/martona/yo/releases/download/v0.2.0/yo-windows-amd64.zip
+    InstallerSha256: FBF38D4F0EBBDB406B548E0F04E0279B7A0D041E232A5E03B566613E825A7C48
   - Architecture: arm64
-    InstallerUrl: https://github.com/martona/yo/releases/download/v0.1.1/yo-windows-arm64.zip
-    InstallerSha256: 893DA8A34A0EECDD4C173C62D3271AE75558402B4A95AAAA15E4082E05567EEF
+    InstallerUrl: https://github.com/martona/yo/releases/download/v0.2.0/yo-windows-arm64.zip
+    InstallerSha256: DE082DB2C6FE64DEA09EFED0E8DB8491D2CB72D66CECB17DF3C0EF779807A88D
 ManifestType: installer
 ManifestVersion: 1.6.0

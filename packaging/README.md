@@ -8,22 +8,6 @@ ID-signed and notarized in the release workflow.
 
 ---
 
-## Scoop — [`scoop/yo.json`](scoop/yo.json)
-
-A single manifest. `checkver`/`autoupdate` keep the version + hashes
-current automatically from each release's `SHA256SUMS.txt`.
-
-**Official `Extras` bucket:**
-- PR `yo.json` into [`ScoopInstaller/Extras`](https://github.com/ScoopInstaller/Extras)
-  at `bucket/yo.json`. `Extras` has no notability bar (unlike `Main`); the review is a
-  procedural check that the manifest is well-formed and `checkver`/`autoupdate` work.
-- The Excavator bot then auto-bumps it on future releases — no manual upkeep.
-
-Update by hand if ever needed: bump `version`, then `scoop update` recomputes hashes
-from `autoupdate`, or pull them from the release's `SHA256SUMS.txt`.
-
----
-
 ## winget — [`winget/`](winget/)
 
 Three manifests (`version`, `installer`, `locale`) for `martona.yo`, modeling the zip
@@ -32,7 +16,7 @@ as a **nested portable** exe. Two-step:
 **1. First submission (creates the package).** Submit the seed manifests once, via
 either:
 - `wingetcreate submit --token <PAT> packaging/winget/`, or
-- a manual PR placing them at `manifests/m/martona/yo/0.1.1/` in
+- a manual PR placing them at `manifests/m/martona/yo/0.2.0/` in
   [`microsoft/winget-pkgs`](https://github.com/microsoft/winget-pkgs).
 
 Automated validation runs (schema, hash match, URL reachability, a sandbox install
