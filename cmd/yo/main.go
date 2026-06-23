@@ -42,6 +42,11 @@ const scrollbackMaxLines = 200
 // snippet only has to report its terminal width.
 var displayWidth int
 
+// outputFormat controls the machine-readable Result encoding. JSON is the stable
+// default used by PowerShell; "sh" is for POSIX-family shell snippets that do not
+// have a built-in JSON parser.
+var outputFormat = "json"
+
 // version is the binary version, set via -ldflags "-X main.version=<tag>" in CI;
 // "dev" for local/un-tagged builds (with a runtime/debug BuildInfo fallback).
 var version = "dev"
@@ -62,9 +67,19 @@ func main() {
 	initFlag := flag.String("init", "", "print the shell integration for <shell> (powershell) and exit")
 	setupFlag := flag.Bool("setup", false, "install or repair the shell integration (interactive) and exit")
 	uninstallFlag := flag.Bool("uninstall", false, "remove the shell integration from your profile and exit")
+	outputFlag := flag.String("output", "json", "result output format for shell integrations (json or sh)")
+	shellFlag := flag.String("shell", "", "shell profile hint for command generation (powershell, zsh, bash)")
 	flag.Usage = usage
 	flag.Parse()
 	displayWidth = *width
+	outputFormat = strings.ToLower(strings.TrimSpace(*outputFlag))
+	if *shellFlag != "" {
+		os.Setenv("YO_SHELL", *shellFlag)
+	}
+	if outputFormat != "json" && outputFormat != "sh" {
+		fmt.Fprintf(os.Stderr, "yo: unknown --output %q (supported: json, sh)\n", *outputFlag)
+		os.Exit(2)
+	}
 
 	switch {
 	case *versionFlag:
@@ -531,8 +546,8 @@ func runCheck() {
 	fmt.Printf("OK  provider=%s  model=%s  memory=%s  debug=%s  key=%d chars (decoded & valid)\n", cfg.Provider, cfg.Model, mem, dbgState, len(cfg.Key))
 }
 
-// emit writes a Result as one JSON line to stdout. Errors are emitted in the
-// same shape so the snippet can parse every outcome uniformly.
+// emit writes a Result to stdout in the selected machine-readable format. Errors
+// are emitted in the same shape so the snippet can parse every outcome uniformly.
 func emit(r llm.Result) {
 	// Wrap prose for display only. This runs after any continuation State has been
 	// encoded from the raw fields (see main/runContinue), so wrapped text never
@@ -542,14 +557,67 @@ func emit(r llm.Result) {
 	r.Response = textwrap.Wrap(r.Response, displayWidth)
 	r.Message = textwrap.Wrap(r.Message, displayWidth)
 	if err := encodeResult(os.Stdout, r); err != nil {
-		fmt.Fprintln(os.Stdout, `{"type":"error","message":"failed to encode result"}`)
+		fallback := llm.Result{Type: "error", Message: "failed to encode result"}
+		_ = encodeResult(os.Stdout, fallback)
 	}
 }
 
-// encodeResult writes r as one JSON line with HTML escaping off, so command
-// strings keep their literal >, <, & (ubiquitous in PowerShell).
+// encodeResult writes r in the currently selected Result encoding.
 func encodeResult(w io.Writer, r llm.Result) error {
+	switch outputFormat {
+	case "sh":
+		return encodeResultSh(w, r)
+	default:
+		return encodeResultJSON(w, r)
+	}
+}
+
+// encodeResultJSON writes r as one JSON line with HTML escaping off, so command
+// strings keep their literal >, <, & (ubiquitous in shell commands).
+func encodeResultJSON(w io.Writer, r llm.Result) error {
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	return enc.Encode(r)
+}
+
+// encodeResultSh writes r as shell assignments for POSIX-family snippets to eval.
+// Every variable is emitted every time so stale values from a prior result cannot
+// survive in the caller.
+func encodeResultSh(w io.Writer, r llm.Result) error {
+	fields := []struct {
+		name  string
+		value string
+	}{
+		{"YO_RESULT_TYPE", r.Type},
+		{"YO_RESULT_COMMAND", r.Command},
+		{"YO_RESULT_EXPLANATION", r.Explanation},
+		{"YO_RESULT_RESPONSE", r.Response},
+		{"YO_RESULT_MESSAGE", r.Message},
+		{"YO_RESULT_PENDING", boolString(r.Pending)},
+		{"YO_RESULT_STATE", r.State},
+		{"YO_RESULT_PREFILL_SPACE", boolString(r.PrefillSpace)},
+	}
+	for _, f := range fields {
+		if _, err := fmt.Fprintf(w, "%s=%s\n", f.name, shellQuote(f.value)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func boolString(v bool) string {
+	if v {
+		return "1"
+	}
+	return "0"
+}
+
+// shellQuote returns a single POSIX-shell token that evaluates to s. Single quotes
+// are closed, escaped, and reopened; all other bytes, including newlines and
+// command substitutions, stay literal inside the quoted string.
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }

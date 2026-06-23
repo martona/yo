@@ -166,6 +166,8 @@ It should emit safely quoted shell assignments:
 YO_RESULT_TYPE='command'
 YO_RESULT_COMMAND='...'
 YO_RESULT_EXPLANATION='...'
+YO_RESULT_RESPONSE=''
+YO_RESULT_MESSAGE=''
 YO_RESULT_PENDING='1'
 YO_RESULT_STATE='...'
 YO_RESULT_PREFILL_SPACE='0'
@@ -186,6 +188,31 @@ Add tests for shell quoting with:
 - Ampersands and angle brackets.
 
 This also creates a reusable contract for future bash support.
+
+### Phase 2 Result (2026-06-23)
+
+Implemented as `--output sh`, with JSON still the default. The `--shell <name>`
+hint is also accepted and sets the prompt profile for the invocation, so a future
+zsh snippet can call:
+
+```sh
+yo --shell zsh --output sh --width "$COLUMNS" ...
+```
+
+The shell format emits every result variable on every call:
+
+- `YO_RESULT_TYPE`
+- `YO_RESULT_COMMAND`
+- `YO_RESULT_EXPLANATION`
+- `YO_RESULT_RESPONSE`
+- `YO_RESULT_MESSAGE`
+- `YO_RESULT_PENDING`
+- `YO_RESULT_STATE`
+- `YO_RESULT_PREFILL_SPACE`
+
+All values are single-quoted by Go using POSIX shell quoting. Tests cover empty
+strings, embedded single quotes, newlines, command substitution, backticks,
+semicolons, pipes, redirections, ampersands, and literal backslashes.
 
 ## Phase 3: Add `shell/yo.zsh`
 
