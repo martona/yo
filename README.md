@@ -28,10 +28,11 @@ That second paragraph is the model **reading the command's output and answering*
 ## Status
 
 - **Works today:** Windows PowerShell **7+** (recommended) and **5.1**, plus
-  macOS **zsh** from source. Providers: **Anthropic** (default) and **OpenAI**.
-- **Planned:** Linux builds and bash integration; prebuilt signed
-  binaries and `winget` / `scoop` packages. For now you build from source (it is a
-  single, dependency-free-to-run Go binary).
+  macOS **zsh**. Providers: **Anthropic** (default) and **OpenAI**.
+- **Release builds:** Windows zips are Authenticode-signed. macOS zips are
+  Developer ID-signed and notarized by Apple.
+- **Planned:** Linux builds and bash integration; `winget` / `scoop` package
+  submission.
 
 ---
 
@@ -42,6 +43,18 @@ profile, and an API key. The guided setup does the profile/key work for
 PowerShell and macOS zsh.
 
 ### 1. Get the binary
+
+From a release:
+
+| Platform | Asset |
+|----------|-------|
+| Windows x64 | `yo-windows-amd64.zip` |
+| Windows Arm64 | `yo-windows-arm64.zip` |
+| macOS Apple Silicon | `yo-macos-arm64.zip` |
+| macOS Intel | `yo-macos-amd64.zip` |
+
+Each zip contains the `yo` binary plus license/provenance files. Release assets
+also include `SHA256SUMS.txt` and `yo.cdx.json`.
 
 With a [Go](https://go.dev/dl/) 1.26+ toolchain:
 
@@ -115,6 +128,28 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
 Open a fresh shell, then `yo --check` to confirm config and key resolve.
+
+### Verification
+
+Every release zip is attested by GitHub's build-provenance flow:
+
+```sh
+gh attestation verify yo-macos-arm64.zip --repo martona/yo
+# or: gh attestation verify yo-windows-amd64.zip --repo martona/yo
+```
+
+You can also compare each asset with `SHA256SUMS.txt`.
+
+Windows binaries are Authenticode-signed. macOS binaries are Developer ID-signed
+and notarized. After extracting a macOS release:
+
+```sh
+codesign -dv --verbose=4 ./yo
+spctl --assess --type execute --verbose ./yo
+```
+
+Release workflow details and signing inputs are in
+[docs/RELEASING.md](docs/RELEASING.md).
 
 ---
 

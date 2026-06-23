@@ -1,16 +1,20 @@
 name: Release pipeline (reusable)
 
-# Build (cross-compile amd64 + arm64) -> sign (Azure Trusted Signing) -> aggregate
-# third-party licenses + SBOM -> zip the loose exe -> checksum -> attest provenance ->
-# publish a GitHub release. Invoked from release-tag.yml / release-manual.yml; not
-# directly triggerable. Callers pass the version (from the git tag) and the draft flag.
-# Windows only; both arches build on one runner because Go cross-compiles.
+# Build -> sign/notarize -> package -> attest -> publish.
+# Invoked from release-tag.yml / release-manual.yml; not directly triggerable.
+# Callers pass the version (from the git tag) and the draft flag.
 #
-# Signing reuses the same Azure Trusted Signing setup as the author's other repos:
+# Windows uses Azure Trusted Signing. macOS uses Developer ID signing plus Apple
+# notarization, following the same secrets/variables as martona/clipp:
+#
 #   secrets: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
-#   vars:    ARTIFACT_SIGNING_ENDPOINT, ARTIFACT_SIGNING_ACCOUNT, ARTIFACT_SIGNING_CERTIFICATE_PROFILE
-#   environment: release-signing  (the Azure federated credential is scoped to
-#                repo:martona/yo:environment:release-signing)
+#            APPLE_CERTIFICATE_P12, APPLE_CERTIFICATE_P12_PASSWORD,
+#            APPLE_KEYCHAIN_PASSWORD, APPLE_API_KEY_P8
+#   vars:    ARTIFACT_SIGNING_ENDPOINT, ARTIFACT_SIGNING_ACCOUNT,
+#            ARTIFACT_SIGNING_CERTIFICATE_PROFILE,
+#            APPLE_CODESIGN_IDENTITY, APPLE_TEAM_ID,
+#            APPLE_API_KEY_ID, APPLE_API_ISSUER_ID
+#   environment: release-signing
 
 on:
   workflow_call:
@@ -29,16 +33,59 @@ on:
         description: 'Create the GitHub release as a draft (not published)'
 
 permissions:
-  contents: write       # create release + upload assets, create the tag (manual flow)
+  contents: write       # create release + upload assets
   id-token: write       # Azure OIDC for Trusted Signing + sigstore OIDC for attestation
   attestations: write   # write build provenance attestation
 
 jobs:
-  release:
-    name: Build, sign, publish
+  notices:
+    name: Third-party notices + SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Generate third-party licenses + SBOM
+        run: |
+          go install github.com/google/go-licenses@latest
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
+          gobin="$(go env GOPATH)/bin"
+          "$gobin/go-licenses" save ./cmd/yo --save_path=third-party-licenses --force --ignore github.com/martona/yo
+          "$gobin/cyclonedx-gomod" app -json -licenses -assert-licenses -main cmd/yo -output yo.cdx.json .
+
+      - name: License compatibility check (non-blocking)
+        continue-on-error: true
+        run: |
+          "$(go env GOPATH)/bin/go-licenses" check ./cmd/yo --ignore github.com/martona/yo
+
+      - name: Upload third-party license texts
+        uses: actions/upload-artifact@v4
+        with:
+          name: third-party-licenses
+          path: third-party-licenses
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload SBOM release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-sbom
+          path: yo.cdx.json
+          if-no-files-found: error
+          retention-days: 1
+
+  build-windows:
+    name: Build Windows
     runs-on: windows-latest
-    # Scopes the OIDC token's subject to repo:martona/yo:environment:release-signing,
-    # which the Azure-side federated credential matches on. Also a natural approval gate.
+    needs: notices
     environment: release-signing
     defaults:
       run:
@@ -63,8 +110,6 @@ jobs:
           GOOS: windows
           CGO_ENABLED: '0'
         run: |
-          # Version is baked in via -ldflags so `yo --version` reports the tag;
-          # -trimpath + -s -w drop paths and the symbol/debug tables (smaller exe).
           $ldflags = "-s -w -X main.version=${{ inputs.tag }}"
           New-Item -ItemType Directory -Force dist | Out-Null
           foreach ($arch in 'amd64', 'arm64') {
@@ -103,40 +148,17 @@ jobs:
             Write-Host "[+] $($exe.Name) signed by: $($sig.SignerCertificate.Subject)"
           }
 
-      - name: Third-party licenses + SBOM
-        run: |
-          # go-licenses gathers each bundled module's license TEXT (GPLv3 requires shipping
-          # these with a distributed binary); cyclonedx-gomod emits a CycloneDX SBOM with
-          # licenses for vuln-scanning. If go-licenses chokes on a module it can't classify,
-          # add `--ignore <module>` here (its known rough edge). We ignore our own module.
-          $gobin = "$(go env GOPATH)\bin"
-          go install github.com/google/go-licenses@latest
-          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
-          $env:PATH = "$gobin;$env:PATH"
-          go-licenses save ./cmd/yo --save_path=third-party-licenses --force --ignore github.com/martona/yo
-          # -assert-licenses promotes detected licenses into the canonical component.licenses
-          # field (most scanners read that, not evidence.licenses). Verified locally: all 62
-          # deps resolve to permissive, GPLv3-compatible licenses (BSD/MIT/Apache).
-          cyclonedx-gomod app -json -licenses -assert-licenses -main cmd/yo -output yo.cdx.json .
-          Write-Host "Wrote third-party-licenses\ and yo.cdx.json"
-
-      - name: License compatibility check (non-blocking)
-        continue-on-error: true
-        run: |
-          $gobin = "$(go env GOPATH)\bin"
-          $env:PATH = "$gobin;$env:PATH"
-          # Flags anything GPLv3-incompatible (forbidden/restricted). Informational for now;
-          # tighten to a hard gate once the dependency licenses are known-good.
-          go-licenses check ./cmd/yo --ignore github.com/martona/yo
+      - name: Download license texts
+        uses: actions/download-artifact@v4
+        with:
+          name: third-party-licenses
+          path: third-party-licenses
 
       - name: Package
         run: |
           $stage = "release-stage"
           New-Item -ItemType Directory -Force $stage | Out-Null
           foreach ($arch in 'amd64', 'arm64') {
-            # Version-LESS asset names so docs/scoop can link a stable
-            # releases/latest/download/<name> URL; the version rides in the exe
-            # (yo --version) and the attestation binds by SHA256.
             $pkg = "pkg-$arch"
             New-Item -ItemType Directory -Force $pkg | Out-Null
             Copy-Item "dist/yo-$arch.exe" "$pkg/yo.exe"
@@ -145,21 +167,176 @@ jobs:
             Compress-Archive -Path "$pkg/*" -DestinationPath "$stage/yo-windows-$arch.zip" -Force
             Write-Host "Created $stage/yo-windows-$arch.zip"
           }
-          Copy-Item yo.cdx.json "$stage/yo.cdx.json"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: release-stage/*
+          if-no-files-found: error
+          retention-days: 1
+
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+    needs: notices
+    environment: release-signing
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Test before release
+        run: go test ./...
+
+      - name: Import code signing certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_P12_PASSWORD }}
+          keychain-password: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+
+      - name: Write App Store Connect API key
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          umask 077
+          printf '%s' "$APPLE_API_KEY_P8" > "${{ runner.temp }}/authkey.p8"
+          if ! grep -q "BEGIN PRIVATE KEY" "${{ runner.temp }}/authkey.p8"; then
+            echo "::error::APPLE_API_KEY_P8 secret doesn't look like a PEM .p8 file"
+            exit 1
+          fi
+
+      - name: Build and sign binaries
+        env:
+          APPLE_CODESIGN_IDENTITY: ${{ vars.APPLE_CODESIGN_IDENTITY }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          CGO_ENABLED: '0'
+          GOOS: darwin
+        run: |
+          set -euo pipefail
+          : "${APPLE_CODESIGN_IDENTITY:?APPLE_CODESIGN_IDENTITY repo variable is required}"
+          : "${APPLE_TEAM_ID:?APPLE_TEAM_ID repo variable is required}"
+
+          ldflags="-s -w -X main.version=${{ inputs.tag }}"
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            GOARCH="$arch" go build -trimpath -ldflags "$ldflags" -o "dist/yo-darwin-$arch" ./cmd/yo
+            codesign --force --options=runtime --timestamp \
+              --sign "$APPLE_CODESIGN_IDENTITY" "dist/yo-darwin-$arch"
+            codesign --verify --strict --verbose=2 "dist/yo-darwin-$arch"
+            if ! codesign --display --verbose=4 "dist/yo-darwin-$arch" 2>&1 | grep -Eq 'flags=.*runtime'; then
+              echo "::error::hardened runtime flag not present on dist/yo-darwin-$arch"
+              exit 1
+            fi
+            echo "Signed dist/yo-darwin-$arch"
+          done
+
+      - name: Download license texts
+        uses: actions/download-artifact@v4
+        with:
+          name: third-party-licenses
+          path: third-party-licenses
+
+      - name: Package and notarize
+        env:
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/authkey.p8
+          APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ vars.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          : "${APPLE_API_KEY_PATH:?APPLE_API_KEY_PATH is required}"
+          : "${APPLE_API_KEY_ID:?APPLE_API_KEY_ID repo variable is required}"
+          : "${APPLE_API_ISSUER_ID:?APPLE_API_ISSUER_ID repo variable is required}"
+
+          notarize_zip() {
+            local zip_path="$1"
+            local log_path="${RUNNER_TEMP}/notarytool-$(basename "$zip_path").log"
+            echo "Submitting $zip_path to Apple notarization..."
+            set +e
+            xcrun notarytool submit "$zip_path" \
+              --key "$APPLE_API_KEY_PATH" \
+              --key-id "$APPLE_API_KEY_ID" \
+              --issuer "$APPLE_API_ISSUER_ID" \
+              --wait 2>&1 | tee "$log_path"
+            local notary_status=${PIPESTATUS[0]}
+            set -e
+
+            local submission_id
+            submission_id="$(grep -E '^[[:space:]]*id:' "$log_path" | head -n1 | awk '{print $2}')"
+            if [[ "$notary_status" -ne 0 ]] || ! grep -Eq '^[[:space:]]*status: Accepted[[:space:]]*$' "$log_path"; then
+              echo "::error::Notarization did not return Accepted for $zip_path"
+              if [[ -n "$submission_id" ]]; then
+                xcrun notarytool log "$submission_id" \
+                  --key "$APPLE_API_KEY_PATH" \
+                  --key-id "$APPLE_API_KEY_ID" \
+                  --issuer "$APPLE_API_ISSUER_ID" >&2 || true
+              fi
+              exit 1
+            fi
+          }
+
+          mkdir -p release-stage
+          for arch in amd64 arm64; do
+            pkg="pkg-macos-$arch"
+            rm -rf "$pkg"
+            mkdir -p "$pkg"
+            cp "dist/yo-darwin-$arch" "$pkg/yo"
+            cp LICENSE NOTICE README.md "$pkg/"
+            cp -R third-party-licenses "$pkg/third-party-licenses"
+            (cd "$pkg" && /usr/bin/ditto -c -k --sequesterRsrc . "../release-stage/yo-macos-$arch.zip")
+            notarize_zip "release-stage/yo-macos-$arch.zip"
+          done
+
+          ls -la release-stage/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: release-stage/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Create release
+    runs-on: ubuntu-latest
+    needs: [notices, build-windows, build-macos]
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
 
       - name: Checksums
         run: |
-          $stage = "release-stage"
-          $lines = Get-ChildItem $stage -File | Sort-Object Name | ForEach-Object {
-            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
-          }
-          Set-Content -Path "$stage/SHA256SUMS.txt" -Value $lines -Encoding ascii
-          Get-Content "$stage/SHA256SUMS.txt" | Write-Host
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          root = Path("artifacts")
+          lines = []
+          for path in sorted(p for p in root.iterdir() if p.is_file() and p.name != "SHA256SUMS.txt"):
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              lines.append(f"{digest}  {path.name}")
+          (root / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="ascii")
+          print((root / "SHA256SUMS.txt").read_text(encoding="ascii"), end="")
+          PY
+          ls -la artifacts/
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v3
         with:
-          subject-path: 'release-stage/yo-windows-*.zip'
+          subject-path: 'artifacts/*'
 
       - name: Create release
         uses: softprops/action-gh-release@v2
@@ -169,5 +346,5 @@ jobs:
           draft: ${{ inputs.draft }}
           prerelease: false
           generate_release_notes: true
-          files: release-stage/*
+          files: artifacts/*
           fail_on_unmatched_files: true

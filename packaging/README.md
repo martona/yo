@@ -1,8 +1,10 @@
 # Packaging
 
-Manifests for distributing `yo` via package managers. Both consume the **signed
-per-arch zips** already published on GitHub Releases (`yo-windows-{amd64,arm64}.zip`)
-plus `SHA256SUMS.txt`; neither rebuilds anything.
+Manifests for distributing `yo` via package managers. Windows manifests consume
+the **signed per-arch zips** already published on GitHub Releases
+(`yo-windows-{amd64,arm64}.zip`) plus `SHA256SUMS.txt`; they do not rebuild
+anything. macOS release zips (`yo-macos-{arm64,amd64}.zip`) are Developer
+ID-signed and notarized in the release workflow.
 
 ---
 
@@ -48,6 +50,25 @@ opens the version-bump PR on each published release. To enable it:
 The action uses `wingetcreate update`, which preserves the portable/zip structure from
 the seed and only swaps version + URLs + hashes — so the seed in step 1 defines the
 shape once.
+
+---
+
+## macOS / Homebrew
+
+There is no Homebrew formula yet. The release workflow publishes stable,
+version-less asset names:
+
+- `yo-macos-arm64.zip`
+- `yo-macos-amd64.zip`
+
+A future tap formula should use the per-arch release zip URLs plus hashes from
+`SHA256SUMS.txt`, install the contained `yo` binary, and print `yo --setup` as the
+post-install next step.
+
+The zip archives are submitted to Apple's notary service after the binary inside
+is Developer ID-signed with hardened runtime. Command-line zip archives are not
+stapled like `.app` bundles or `.pkg` installers, but the notary acceptance is
+bound to the submitted archive and Gatekeeper can validate the signed binary.
 
 ---
 

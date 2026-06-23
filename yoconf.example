@@ -1,6 +1,6 @@
 # yo configuration -- copy to ~/.yoconf and edit. All directives are optional;
 # lines starting with # are comments. yo re-reads this on every invocation.
-# (On Windows, ~ is %USERPROFILE%.)
+# (On Windows, ~ is %USERPROFILE%; on macOS/zsh, it is $HOME.)
 
 # Provider: "anthropic" (default) or "openai".
 # If omitted, yo infers it from whichever key env var is set
@@ -17,7 +17,9 @@ provider anthropic
 # API key: set the standard environment variable -- this is the expected path:
 #   ANTHROPIC_API_KEY   (anthropic)
 #   OPENAI_API_KEY      (openai)
-# e.g. in your PowerShell profile, or persistently:
+# e.g. in ~/.zshrc:
+#   export ANTHROPIC_API_KEY="sk-ant-..."
+# or persistently on Windows:
 #   [Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY", "sk-ant-...", "User")
 # You may override it here with a `key` directive, but the env var is preferred.
 # key sk-ant-...
@@ -41,8 +43,9 @@ provider anthropic
 
 # Prefill with a leading space (optional; default OFF). When on, prefilled commands
 # get a single leading space. History tools that ignore space-prefixed lines (e.g.
-# Atuin) then skip them, while PowerShell's Get-History still records them -- so the
-# searchable history stays free of yo's suggestions but the session picture is whole.
-# PowerShell-specific: on bash/zsh, HISTCONTROL=ignorespace would also drop it from
-# the shell's own history. Verify your tool honors leading-space before relying on it.
+# Atuin) then skip them. PowerShell's Get-History still records them, so the
+# searchable history can stay free of yo's suggestions while continuation still
+# sees the command. On bash, HISTCONTROL=ignorespace also drops them from shell
+# history; on zsh, setopt HIST_IGNORE_SPACE does the same. Verify your tools honor
+# leading-space before relying on it.
 # prefill_space true

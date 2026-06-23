@@ -1,0 +1,63 @@
+name: macOS CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build, vet, test
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: gofmt (must be clean)
+        run: |
+          bad="$(gofmt -l .)"
+          if [[ -n "$bad" ]]; then
+            echo "gofmt needs running on:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "gofmt clean"
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...
+
+      - name: zsh snippet parse smoke
+        run: |
+          zsh -n shell/yo.zsh
+          go run ./cmd/yo --init zsh | zsh -n
+
+      - name: Build darwin binaries
+        env:
+          GOOS: darwin
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            GOARCH="$arch" go build -trimpath -o "dist/yo-darwin-$arch" ./cmd/yo
+          done
+          ls -la dist/

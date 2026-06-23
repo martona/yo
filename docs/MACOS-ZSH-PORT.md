@@ -480,8 +480,29 @@ Early macOS installation can prefer:
 go install github.com/martona/yo/cmd/yo@latest
 ```
 
-Downloaded prebuilt binaries may hit Gatekeeper/quarantine friction until
-notarization is added. Notarization can be a later release-hardening step.
+### Phase 7 Result (2026-06-23)
+
+Implemented macOS build, signing, notarization, and docs work.
+
+What landed:
+
+- Added `.github/workflows/macos-ci.yml` for macOS/zsh-facing local equivalents:
+  `gofmt`, `go vet`, `go test`, `zsh -n shell/yo.zsh`,
+  `yo --init zsh | zsh -n`, and `darwin/amd64` + `darwin/arm64` builds.
+- Reworked the reusable release workflow so release assets are built by platform
+  jobs and published by an aggregate job.
+- Added `yo-macos-amd64.zip` and `yo-macos-arm64.zip` release assets.
+- macOS release binaries are Developer ID-signed with hardened runtime.
+- macOS release zips are submitted to Apple notarization with `xcrun notarytool
+  --wait`; failure to receive `status: Accepted` fails the release.
+- Windows Authenticode signing remains via Azure Trusted Signing.
+- Third-party license text and SBOM generation are shared across release jobs.
+- The publish job writes `SHA256SUMS.txt`, attests release artifacts, and creates
+  the GitHub release.
+- Updated README install/verification docs, `yoconf.example`, packaging notes for
+  future Homebrew, release workflow asset names, and `docs/RELEASING.md`.
+
+The release workflow uses the same Apple secret/variable names as `martona/clipp`.
 
 ## Future Bash Compatibility
 
