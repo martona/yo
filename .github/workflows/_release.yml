@@ -67,7 +67,7 @@ jobs:
           "$(go env GOPATH)/bin/go-licenses" check ./cmd/yo --ignore github.com/martona/yo
 
       - name: Upload third-party license texts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: third-party-licenses
           path: third-party-licenses
@@ -75,7 +75,7 @@ jobs:
           retention-days: 1
 
       - name: Upload SBOM release asset
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-sbom
           path: yo.cdx.json
@@ -149,7 +149,7 @@ jobs:
           }
 
       - name: Download license texts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: third-party-licenses
           path: third-party-licenses
@@ -169,7 +169,7 @@ jobs:
           }
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-windows
           path: release-stage/*
@@ -197,7 +197,7 @@ jobs:
         run: go test ./...
 
       - name: Import code signing certificate
-        uses: apple-actions/import-codesign-certs@v3
+        uses: apple-actions/import-codesign-certs@v7
         with:
           p12-file-base64: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           p12-password: ${{ secrets.APPLE_CERTIFICATE_P12_PASSWORD }}
@@ -240,7 +240,7 @@ jobs:
           done
 
       - name: Download license texts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: third-party-licenses
           path: third-party-licenses
@@ -298,7 +298,7 @@ jobs:
           ls -la release-stage/
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-macos
           path: release-stage/*
@@ -311,7 +311,7 @@ jobs:
     needs: [notices, build-windows, build-macos]
     steps:
       - name: Download release artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: release-*
           path: artifacts

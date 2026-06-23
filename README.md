@@ -48,13 +48,14 @@ From a release:
 
 | Platform | Asset |
 |----------|-------|
-| Windows x64 | `yo-windows-amd64.zip` |
-| Windows Arm64 | `yo-windows-arm64.zip` |
-| macOS Apple Silicon | `yo-macos-arm64.zip` |
-| macOS Intel | `yo-macos-amd64.zip` |
+| Windows x64 | [`yo-windows-amd64.zip`](https://github.com/martona/yo/releases/latest/download/yo-windows-amd64.zip) |
+| Windows Arm64 | [`yo-windows-arm64.zip`](https://github.com/martona/yo/releases/latest/download/yo-windows-arm64.zip) |
+| macOS Apple Silicon | [`yo-macos-arm64.zip`](https://github.com/martona/yo/releases/latest/download/yo-macos-arm64.zip) |
+| macOS Intel | [`yo-macos-amd64.zip`](https://github.com/martona/yo/releases/latest/download/yo-macos-amd64.zip) |
 
 Each zip contains the `yo` binary plus license/provenance files. Release assets
-also include `SHA256SUMS.txt` and `yo.cdx.json`.
+also include [`SHA256SUMS.txt`](https://github.com/martona/yo/releases/latest/download/SHA256SUMS.txt)
+and [`yo.cdx.json`](https://github.com/martona/yo/releases/latest/download/yo.cdx.json).
 
 With a [Go](https://go.dev/dl/) 1.26+ toolchain:
 
