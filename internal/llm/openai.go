@@ -26,10 +26,11 @@ type openaiProvider struct {
 	model   string
 	key     string
 	baseURL string
+	profile CommandProfile
 }
 
 func newOpenAI(cfg config.Config) *openaiProvider {
-	return &openaiProvider{model: cfg.Model, key: cfg.Key, baseURL: cfg.BaseURL}
+	return &openaiProvider{model: cfg.Model, key: cfg.Key, baseURL: cfg.BaseURL, profile: DetectCommandProfile()}
 }
 
 // Responses API function tool: flat (type/name/description/parameters/strict),
@@ -68,10 +69,10 @@ type openaiResponse struct {
 func (p *openaiProvider) Request(query string) ([]byte, error) {
 	req := openaiRequest{
 		Model:           p.model,
-		Instructions:    openaiSystemPrompt(p.model),
+		Instructions:    openaiSystemPrompt(p.model, p.profile),
 		Input:           query,
 		MaxOutputTokens: openaiMaxTokens,
-		Tools:           openaiTools(),
+		Tools:           openaiTools(p.profile),
 		ToolChoice:      "required", // force a tool call
 		Store:           false,      // privacy: don't retain the request
 	}
@@ -98,7 +99,7 @@ func (p *openaiProvider) Generate(ctx context.Context, query string) (Result, er
 	return parseOpenAI(respBody, status)
 }
 
-func openaiTools() []openaiTool {
+func openaiTools(profile CommandProfile) []openaiTool {
 	objectSchema := func(props map[string]any, required ...string) map[string]any {
 		return map[string]any{
 			"type":                 "object",
@@ -111,11 +112,11 @@ func openaiTools() []openaiTool {
 		{
 			Type:        "function",
 			Name:        toolCommand,
-			Description: descCommand + " " + descCommandBias,
+			Description: profile.CommandTool + " " + descCommandBias(profile),
 			Parameters: objectSchema(map[string]any{
-				"command":     map[string]any{"type": "string", "description": descCommandFld},
+				"command":     map[string]any{"type": "string", "description": profile.CommandField},
 				"explanation": map[string]any{"type": "string", "description": descExplainFld},
-				"pending":     map[string]any{"type": "boolean", "description": descPendingFld},
+				"pending":     map[string]any{"type": "boolean", "description": descPending(profile)},
 			}, "command", "explanation", "pending"),
 			Strict: true,
 		},

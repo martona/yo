@@ -24,10 +24,11 @@ type anthropicProvider struct {
 	model   string
 	key     string
 	baseURL string
+	profile CommandProfile
 }
 
 func newAnthropic(cfg config.Config) *anthropicProvider {
-	return &anthropicProvider{model: cfg.Model, key: cfg.Key, baseURL: cfg.BaseURL}
+	return &anthropicProvider{model: cfg.Model, key: cfg.Key, baseURL: cfg.BaseURL, profile: DetectCommandProfile()}
 }
 
 type anthropicTool struct {
@@ -68,9 +69,9 @@ func (p *anthropicProvider) Request(query string) ([]byte, error) {
 	req := anthropicRequest{
 		Model:      p.model,
 		MaxTokens:  anthropicMaxTokens,
-		System:     anthropicSystemPrompt(p.model),
+		System:     anthropicSystemPrompt(p.model, p.profile),
 		Messages:   []anthropicMessage{{Role: "user", Content: query}},
-		Tools:      anthropicTools(),
+		Tools:      anthropicTools(p.profile),
 		ToolChoice: map[string]any{"type": "any"}, // force exactly one tool call
 	}
 	return json.Marshal(req)
@@ -97,17 +98,17 @@ func (p *anthropicProvider) Generate(ctx context.Context, query string) (Result,
 	return parseAnthropic(respBody, status)
 }
 
-func anthropicTools() []anthropicTool {
+func anthropicTools(profile CommandProfile) []anthropicTool {
 	return []anthropicTool{
 		{
 			Name:        toolCommand,
-			Description: descCommand + " " + descCommandBias,
+			Description: profile.CommandTool + " " + descCommandBias(profile),
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"command":     map[string]any{"type": "string", "description": descCommandFld},
+					"command":     map[string]any{"type": "string", "description": profile.CommandField},
 					"explanation": map[string]any{"type": "string", "description": descExplainFld},
-					"pending":     map[string]any{"type": "boolean", "description": descPendingFld},
+					"pending":     map[string]any{"type": "boolean", "description": descPending(profile)},
 				},
 				"required": []string{"command", "explanation"},
 			},

@@ -1,39 +1,35 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // System prompts and tool descriptions, adapted from yoshell's (GPLv3) prompt
-// design to PowerShell/Windows. yoshell's base prompt is in bashline.c and its
-// tool definitions in readline-8.2.13/yo.c. The descriptions are shared across
-// providers; each provider renders them into its own tool/schema format and
-// pairs them with the right system prompt (minimal for Anthropic, worked-example
-// heavy for OpenAI-style models, which over-use chat otherwise).
+// design. yoshell's base prompt is in bashline.c and its tool definitions in
+// readline-8.2.13/yo.c. The descriptions are shared across providers; each
+// provider renders them into its own tool/schema format and pairs them with the
+// right system prompt (minimal for Anthropic, worked-example heavy for
+// OpenAI-style models, which over-use chat otherwise).
 package llm
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Shared tool surface (names, descriptions, field docs).
 const (
 	toolCommand = "command"
 	toolChat    = "chat"
 
-	descCommand = "Generate a PowerShell command for the user to review " +
-		"and execute. The command will be prefilled at the prompt " +
-		"for the user to edit or run."
-	descCommandFld = "The PowerShell command to execute"
 	descExplainFld = "Brief explanation of what this command does, shown to " +
 		"the user before the command"
-	descPendingFld = "Set to true when you need to see this command's output " +
-		"before you can answer or decide the next action -- either one step of a " +
-		"sequence, or a single investigative command (e.g. Get-Disk, Test-Path, " +
-		"Get-Process) whose result you must read first. After the user runs it you " +
-		"will receive its terminal output and can then give the next command or " +
-		"answer with the chat tool. Set false on the final or only step."
 	descChat = "Respond with text ONLY when there is genuinely nothing to run -- " +
 		"greetings, opinions, or conceptual/explanatory answers. If your reply " +
 		"would contain, recommend, or describe ANY command the user could run, do " +
 		"NOT use this tool: use the command tool and prefill it instead. " +
 		"Describing a runnable command here instead of prefilling it is a failure."
-	descChatFld     = "Your text response to the user"
-	descCommandBias = "CRITICAL: if the request can be satisfied by running " +
+	descChatFld = "Your text response to the user"
+)
+
+func descCommandBias(profile CommandProfile) string {
+	return "CRITICAL: if the request can be satisfied by running " +
 		"something, you MUST use this tool, never chat -- including installs, " +
 		"removals, and config changes. You propose; the user disposes: the " +
 		"command is prefilled and runs only when they press Enter, so reviewing " +
@@ -44,52 +40,58 @@ const (
 		"that does the job -- one the user could learn and reuse -- over an " +
 		"intricate one-liner that computes the exact answer; when precision would " +
 		"otherwise need a long or multi-stage pipeline, prefer a simple, well-known " +
-		"command with pending=true and read its output to answer. No long " +
-		"here-strings or multi-line scripts."
+		"command with pending=true and read its output to answer. " + profile.ScriptLimit
+}
 
-	// multiStep guidance is appended to both system prompts. It covers both the
-	// sequential-steps case and yoshell's "investigate first" case -- run a
-	// diagnostic with pending=true, read its output, then answer or continue.
-	multiStep = "MULTI-STEP & INVESTIGATE-FIRST: Set pending=true and issue ONE " +
+func descPending(profile CommandProfile) string {
+	return "Set to true when you need to see this command's output " +
+		"before you can answer or decide the next action -- either one step of a " +
+		"sequence, or a single investigative command (" + profile.PendingFieldExample + ") " +
+		"whose result you must read first. After the user runs it you " +
+		"will receive its terminal output and can then give the next command or " +
+		"answer with the chat tool. Set false on the final or only step."
+}
+
+// multiStep guidance is appended to both system prompts. It covers both the
+// sequential-steps case and yoshell's "investigate first" case -- run a
+// diagnostic with pending=true, read its output, then answer or continue.
+func multiStep(profile CommandProfile) string {
+	return "MULTI-STEP & INVESTIGATE-FIRST: Set pending=true and issue ONE " +
 		"command at a time whenever a task has sequential steps, OR when you must " +
 		"see a command's output before you can answer or choose the next action " +
-		"(e.g. \"where is my USB drive mounted\" -> Get-Disk / Get-Partition with " +
-		"pending=true, then read the result). After each pending command you receive " +
+		"(e.g. " + profile.MultiStepExample + "). After each pending command you receive " +
 		"its terminal output and exit code; reply with the next command, or with the " +
 		"chat tool to give the user the answer once you have it. Set pending=false on " +
 		"the last or only step. Do NOT chain steps with && or ; -- one command per step."
+}
 
-	// diagnostics is appended to both system prompts. yoshell fetches scrollback on
-	// demand via a tool; yo instead injects it as a [terminal context] block when it
-	// can be captured, so the model must be told to READ that block for "why did it
-	// fail" questions -- and, since yo has no on-demand fetch, never to fall back to
-	// asking the user to paste output.
-	diagnostics = "DIAGNOSTICS: When the user asks why something failed or what " +
-		"went wrong (\"why did that fail\", \"what happened\", \"that didn't work\", or " +
-		"mentions an error), recent terminal output is provided above as a " +
-		"[terminal context] block whenever it could be captured -- read it and answer " +
-		"from it; do NOT ask the user what they were doing. NEVER ask the user to " +
-		"paste logs, output, or errors. If no terminal context is present, prefill a " +
-		"command that surfaces the problem, or answer from what you know -- but never " +
-		"ask for a paste."
-)
+// diagnostics is appended to both system prompts. yoshell fetches scrollback on
+// demand via a tool; yo instead injects it as a [terminal context] block when it
+// can be captured, so the model must be told to READ that block for "why did it
+// fail" questions -- and, since yo has no on-demand fetch, never to fall back to
+// asking the user to paste output.
+const diagnostics = "DIAGNOSTICS: When the user asks why something failed or what " +
+	"went wrong (\"why did that fail\", \"what happened\", \"that didn't work\", or " +
+	"mentions an error), recent terminal output is provided above as a " +
+	"[terminal context] block whenever it could be captured -- read it and answer " +
+	"from it; do NOT ask the user what they were doing. NEVER ask the user to " +
+	"paste logs, output, or errors. If no terminal context is present, prefill a " +
+	"command that surfaces the problem, or answer from what you know -- but never " +
+	"ask for a paste."
 
 // anthropicSystemPrompt is intentionally minimal — Anthropic's tool descriptions
 // carry the command-vs-chat routing on their own.
-func anthropicSystemPrompt(model string) string {
+func anthropicSystemPrompt(model string, profile CommandProfile) string {
 	return fmt.Sprintf(`You are powered by %s (provider: anthropic).
 
-You are a command assistant for PowerShell on Windows. The user is at an
-interactive PowerShell prompt; any command you generate is prefilled at
-their prompt for them to review, edit, or run -- nothing executes until
-they press Enter.
+You are a command assistant for a %s. The user is at an
+interactive prompt; any command you generate is prefilled at their prompt for
+them to review, edit, or run -- nothing executes until they press Enter.
 
-Generate idiomatic PowerShell (cmdlets such as Get-ChildItem, Where-Object,
-Select-String, Select-Object), not bash or cmd. Prefer the simplest, most
-reusable command that answers the request -- ideally one worth remembering --
-not an intricate one-liner built to compute the exact answer. Use the command
-tool whenever the request is best answered by running something; use the chat
-tool only when no command is needed.
+%s Prefer the simplest, most reusable command that answers the request --
+ideally one worth remembering -- not an intricate one-liner built to compute the
+exact answer. Use the command tool whenever the request is best answered by
+running something; use the chat tool only when no command is needed.
 
 If the user asks a question that has an obvious command as an answer, you
 must use the command tool; you can elaborate in the explanation field.
@@ -101,22 +103,22 @@ will be rendered on a terminal.
 
 %s
 
-%s`, model, multiStep, diagnostics)
+%s`, model, profile.PromptDescription, profile.CommandGuidance, multiStep(profile), diagnostics)
 }
 
 // openaiSystemPrompt biases hard toward commands with worked examples, because
 // (per yoshell) Responses-API models over-use chat for things a shell assistant
 // should answer with a command.
-func openaiSystemPrompt(model string) string {
+func openaiSystemPrompt(model string, profile CommandProfile) string {
 	return fmt.Sprintf(`You are powered by %s (provider: openai).
 
-You are a command assistant for PowerShell on Windows. The user is at an
-interactive PowerShell prompt; any command you generate is prefilled for
-them to review, edit, or run -- nothing executes until they press Enter.
+You are a command assistant for a %s. The user is at an interactive prompt; any
+command you generate is prefilled for them to review, edit, or run -- nothing
+executes until they press Enter.
 
-Generate idiomatic PowerShell (cmdlets), never bash or cmd. Prefer the simplest,
-most reusable command that answers the request -- ideally one worth remembering
--- not an intricate one-liner built to compute the exact answer.
+%s Prefer the simplest, most reusable command that answers the request -- ideally
+one worth remembering -- not an intricate one-liner built to compute the exact
+answer.
 
 If the user asks a question that has an obvious command as an answer, you
 must use the command tool; you can elaborate in the explanation field.
@@ -130,14 +132,19 @@ When in doubt between the command and chat tools, ALWAYS choose command.
 Use chat ONLY for greetings/casual conversation or abstract conceptual
 questions. If the request can be answered by running something on this
 machine, you MUST use the command tool. Examples that MUST use command:
-- "what version of powershell do I have" -> $PSVersionTable.PSVersion
-- "how much free disk space" -> Get-PSDrive -PSProvider FileSystem
-- "show running processes by memory" -> Get-Process | Sort-Object WS -Descending | Select-Object -First 20
-- "what's in this folder" -> Get-ChildItem
+%s
 
 %s
 
-%s`, model, multiStep, diagnostics)
+%s`, model, profile.PromptDescription, profile.CommandGuidance, formatExamples(profile.OpenAIExamples), multiStep(profile), diagnostics)
+}
+
+func formatExamples(examples []CommandExample) string {
+	var b strings.Builder
+	for _, ex := range examples {
+		fmt.Fprintf(&b, "- %q -> %s\n", ex.Request, ex.Command)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // WithTerminalContext prepends recent terminal output to the query as context,
