@@ -1,0 +1,50 @@
+name: Publish to winget
+
+# Auto-opens a version-bump PR to microsoft/winget-pkgs when a release is published,
+# using the community winget-releaser action (wingetcreate under the hood, which
+# PRESERVES the existing manifest structure -- the portable/zip seed in
+# packaging/winget/ must already exist in winget-pkgs first; see packaging/README.md).
+#
+# Requires a repo secret WINGET_TOKEN: a classic PAT with `public_repo` scope whose
+# account has a fork of microsoft/winget-pkgs. Until that's set, this no-ops cleanly.
+#
+# NB: verify the action's current owner/version/inputs against its README before
+# relying on it -- the project has been renamed/transferred over time.
+
+on:
+  release:
+    types: [released]   # published, non-draft, non-prerelease
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: 'Existing release tag to publish (e.g. v0.1.1)'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - name: Is WINGET_TOKEN configured?
+        id: guard
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if ($env:WINGET_TOKEN) {
+            "ok=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            "ok=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host "::notice::WINGET_TOKEN not set -- skipping winget publish."
+          }
+
+      - name: Submit to winget-pkgs
+        if: steps.guard.outputs.ok == 'true'
+        uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: martona.yo
+          installers-regex: '^yo-windows-(amd64|arm64)\.zip$'
+          release-tag: ${{ github.event.release.tag_name || inputs.release-tag }}
+          token: ${{ secrets.WINGET_TOKEN }}
