@@ -377,6 +377,35 @@ For full parity, add a macOS/zsh branch to `yo --setup`:
 Add `--uninstall` support for zsh by removing only the managed init block or
 managed init line. Keep the PowerShell setup path intact.
 
+### Phase 5 Result (2026-06-23)
+
+Implemented zsh setup/uninstall, then refactored setup around a shared Go runner
+so provider/key handling and validation are no longer duplicated per shell.
+
+What landed:
+
+- `yo --setup` selects zsh on macOS, or when `YO_SHELL` / `$SHELL` names zsh.
+  Windows and non-zsh PowerShell setups still use the embedded `shell/setup.ps1`
+  helper only for PowerShell-native work.
+- Shared Go setup now owns the setup banner, target selection, provider/key
+  prompt, `~/.yoconf` writes, and final `yo --check`.
+- The PowerShell helper now only handles user PATH, PSReadLine, and `$PROFILE`
+  wiring/removal.
+- zsh setup detects `${ZDOTDIR:-$HOME}/.zshrc`.
+- Profile edits are confirm-before-change and idempotent.
+- The managed zsh init block uses `yo --init zsh` when `yo` is on `PATH`; if not,
+  it pins the current binary via `YO_BIN` so setup still works from a full path.
+- Shared setup can write `provider` and `key` to `~/.yoconf` with mode `0600`.
+  Standard `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` environment variables remain
+  supported and preferred for manual setup.
+- zsh uninstall removes only the managed block or the exact managed/manual init
+  line, and leaves `~/.yoconf` plus the binary untouched.
+- Setup ends by running `yo --check`; a validation failure is reported but does
+  not undo skipped or completed setup steps.
+
+Tests cover zsh shell detection, profile path selection, managed-block rendering,
+managed-block/line removal, and yoconf provider/key upserts.
+
 ## Phase 6: Tests
 
 Go tests:

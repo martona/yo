@@ -3,6 +3,6 @@
 
 package main
 
-// parentShell is Windows-only; elsewhere runSetup falls back to a pwsh/powershell
-// PATH lookup.
+// parentShell is Windows-only; PowerShell setup on other platforms falls back to
+// a pwsh/powershell PATH lookup.
 func parentShell() string { return "" }

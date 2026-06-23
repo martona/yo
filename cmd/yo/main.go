@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
@@ -386,14 +385,14 @@ Usage:
   yo <natural language>     Get a command prefilled at your prompt, or a chat answer.
   yo --init powershell      Print the PowerShell integration (for your $PROFILE).
   yo --init zsh             Print the zsh integration (for your ~/.zshrc).
-  yo --setup                Install/repair the integration: profile, PSReadLine, key.
+  yo --setup                Install/repair the integration: profile, shell checks, key.
   yo --version              Print the version.
   yo --check                Validate config and the API key (no network).
   yo --config               Show the resolved configuration.
   yo --dry-run <text>       Print the assembled API request (no key or network).
 
 One-time setup:
-  PowerShell:  yo --setup
+  PowerShell or macOS zsh:  yo --setup
   Manual PowerShell: add to your $PROFILE -
       if (Get-Command yo -ErrorAction SilentlyContinue) { yo --init powershell | Out-String | iex }
   Manual zsh: add to ~/.zshrc -
@@ -482,53 +481,6 @@ func runConfig() {
 	}
 	fmt.Printf("provider: %s\nmodel:    %s\nkey:      %s\nmemory:   %s\ndebug:    %s\nprefill:  %s\nyoconf:   %s\n",
 		cfg.Provider, cfg.Model, key, mem, dbgState, psState, yoconf)
-}
-
-// runSetup runs the interactive installer (or uninstaller) by shelling out to pwsh
-// with the embedded setup script -- the shell-native steps (profile path, PSReadLine,
-// user PATH) are PowerShell's job. Requires PowerShell 7+.
-func runSetup(uninstall bool) {
-	exe, err := os.Executable()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "yo: cannot locate the yo binary:", err)
-		os.Exit(1)
-	}
-	// Run setup under the shell that invoked yo, so it configures THAT host's
-	// $PROFILE (Windows PowerShell 5.1 or pwsh 7+). Fall back to a PATH lookup.
-	host := parentShell()
-	if host == "" {
-		if p, e := exec.LookPath("pwsh"); e == nil {
-			host = p
-		} else if p, e := exec.LookPath("powershell"); e == nil {
-			host = p
-		}
-	}
-	if host == "" {
-		fmt.Fprintln(os.Stderr, "yo: setup needs PowerShell (pwsh 7+ or Windows PowerShell 5.1) on PATH.")
-		os.Exit(1)
-	}
-	tmp, err := os.CreateTemp("", "yo-setup-*.ps1")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "yo: setup error:", err)
-		os.Exit(1)
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.WriteString(shell.SetupPowerShell); err != nil {
-		tmp.Close()
-		fmt.Fprintln(os.Stderr, "yo: setup error:", err)
-		os.Exit(1)
-	}
-	tmp.Close()
-
-	cmd := exec.Command(host, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tmp.Name())
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	cmd.Env = append(os.Environ(), "YO_SETUP_BIN="+exe)
-	if uninstall {
-		cmd.Env = append(cmd.Env, "YO_SETUP_UNINSTALL=1")
-	}
-	if err := cmd.Run(); err != nil {
-		os.Exit(1)
-	}
 }
 
 // runCheck validates config and the API key without any network call.

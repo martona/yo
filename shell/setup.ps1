@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# yo setup - invoked by `yo --setup` (the binary runs this under pwsh). Reads the
-# binary path from $env:YO_SETUP_BIN; $env:YO_SETUP_UNINSTALL=1 removes the wiring.
-# Idempotent, and confirm-before-change: every step that would modify something
-# (user PATH, PSReadLine, $PROFILE, an env var) is previewed and asked about first.
-# Declining a step never aborts setup -- it just skips that one and moves on.
+# PowerShell-specific setup helper, invoked by the Go `yo --setup` runner. Reads
+# the binary path from $env:YO_SETUP_BIN; $env:YO_SETUP_UNINSTALL=1 removes the
+# profile wiring. Common setup concerns (provider/key prompts and `yo --check`)
+# live in Go; this script only handles PowerShell-native pieces: user PATH,
+# PSReadLine, and $PROFILE.
 
 $bin       = $env:YO_SETUP_BIN
 $uninstall = $env:YO_SETUP_UNINSTALL -eq '1'
@@ -20,19 +20,6 @@ function Info($m) { Write-Host "    $m" }
 function Confirm($prompt) {
     $ans = (Read-Host "    $prompt [Y/n]").Trim().ToLower()
     return ($ans -eq '' -or $ans -eq 'y' -or $ans -eq 'yes')
-}
-
-# Read-Secret reads a hidden value: -MaskInput on PowerShell 7.1+, else a
-# SecureString (Windows PowerShell 5.1 / 7.0) converted back to plain text.
-function Read-Secret($prompt) {
-    if ((Get-Command Read-Host).Parameters.ContainsKey('MaskInput')) {
-        return Read-Host $prompt -MaskInput
-    }
-    $sec = Read-Host $prompt -AsSecureString
-    if (-not $sec -or $sec.Length -eq 0) { return '' }
-    $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
-    try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) }
-    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) }
 }
 
 if ($uninstall) {
@@ -56,10 +43,6 @@ if ($uninstall) {
     Write-Host "Done. Your ~/.yoconf and the yo binary are untouched."
     return
 }
-
-Write-Host ""
-Write-Host "yo setup -- I'll ask before each change. Press Enter to accept, 'n' to skip." -ForegroundColor Cyan
-Write-Host "Skipping a step is fine; setup keeps going." -ForegroundColor DarkGray
 
 # 1. binary on PATH
 Step "Checking the yo binary is on PATH"
@@ -134,42 +117,3 @@ if ((Get-Content $PROFILE -Raw -ErrorAction SilentlyContinue) -match [regex]::Es
         Warn "skipped -- add 'yo --init powershell | Out-String | iex' to your profile yourself"
     }
 }
-
-# 4. API key
-Step "Checking for an API key"
-if ($env:ANTHROPIC_API_KEY -or $env:OPENAI_API_KEY) {
-    Good "an API key is set in your environment"
-} else {
-    Warn "no ANTHROPIC_API_KEY or OPENAI_API_KEY found"
-    Info "Which provider do you want to configure?"
-    Info "    1) Anthropic (Claude)"
-    Info "    2) OpenAI (GPT)"
-    $choice = (Read-Host "    Choose [1/2] (Enter to skip)").Trim().ToLower()
-    $prov = switch ($choice) {
-        '1'         { 'anthropic' }
-        'anthropic' { 'anthropic' }
-        '2'         { 'openai' }
-        'openai'    { 'openai' }
-        default     { '' }
-    }
-    if ($prov) {
-        $envVar = if ($prov -eq 'openai') { 'OPENAI_API_KEY' } else { 'ANTHROPIC_API_KEY' }
-        $key = Read-Secret "    Paste your $prov API key (Enter to skip)"
-        if ($key) {
-            [Environment]::SetEnvironmentVariable($envVar, $key, 'User')
-            Set-Item "env:$envVar" $key
-            Good "$envVar set (user scope; available in new shells)"
-        } else {
-            Warn "skipped -- set $envVar yourself when ready"
-        }
-    } else {
-        Warn "skipped -- set ANTHROPIC_API_KEY or OPENAI_API_KEY when ready"
-    }
-}
-
-# 5. validate
-Step "Validating configuration"
-if ($bin -and (Test-Path $bin)) { & $bin --check } else { & yo --check }
-
-Write-Host ""
-Write-Host "Setup complete. Open a new shell (or run the init line now), then try:  yo list files over 100mb" -ForegroundColor Cyan

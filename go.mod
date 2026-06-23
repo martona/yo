@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/spf13/viper v1.19.0
 	github.com/zricethezav/gitleaks/v8 v8.30.1
+	golang.org/x/term v0.29.0
 )
 
 require (

@@ -27,9 +27,9 @@ That second paragraph is the model **reading the command's output and answering*
 
 ## Status
 
-- **Works today:** Windows, PowerShell **7+** (recommended) and **5.1**. Providers:
-  **Anthropic** (default) and **OpenAI**.
-- **Planned:** macOS / Linux builds and bash / zsh integration; prebuilt signed
+- **Works today:** Windows PowerShell **7+** (recommended) and **5.1**, plus
+  macOS **zsh** from source. Providers: **Anthropic** (default) and **OpenAI**.
+- **Planned:** Linux builds and bash integration; prebuilt signed
   binaries and `winget` / `scoop` packages. For now you build from source (it is a
   single, dependency-free-to-run Go binary).
 
@@ -37,12 +37,15 @@ That second paragraph is the model **reading the command's output and answering*
 
 ## Install
 
-You need the `yo` binary on your machine, the integration line in your PowerShell
-profile, and an API key. The guided setup does the last two for you.
+You need the `yo` binary on your machine, the integration line in your shell
+profile, and an API key. The guided setup does the profile/key work for
+PowerShell and macOS zsh.
 
 ### 1. Get the binary
 
 With a [Go](https://go.dev/dl/) 1.26+ toolchain:
+
+PowerShell:
 
 ```powershell
 # From a clone of this repo:
@@ -52,22 +55,46 @@ go build -o yo.exe ./cmd/yo
 go install github.com/martona/yo/cmd/yo@latest
 ```
 
+macOS zsh:
+
+```sh
+# From a clone of this repo:
+go build -o yo ./cmd/yo
+
+# ...or install straight from source control (lands in $(go env GOPATH)/bin):
+go install github.com/martona/yo/cmd/yo@latest
+```
+
 ### 2. Run the guided setup
+
+PowerShell:
 
 ```powershell
 .\yo.exe --setup          # or:  & "$(go env GOPATH)\bin\yo.exe" --setup
 ```
 
+macOS zsh:
+
+```sh
+yo --setup
+```
+
 `--setup` is an idempotent, **confirm-before-each-change** checklist. It will offer
-to: add the binary's folder to your user `PATH`; upgrade **PSReadLine** to 2.1+ if
-needed (CurrentUser scope, no admin — 5.1 ships 2.0, which garbles the prefill); add
-the integration line to your `$PROFILE`; and set an API key. Decline any step and it
-simply moves on. `yo --uninstall` reverses the profile wiring.
+to add the integration to your shell profile and configure an API key. Provider/key
+setup is shared across shells and writes `provider` / `key` to `~/.yoconf` only if
+you approve; the standard environment variables still work too. On PowerShell,
+setup shells out only for PowerShell-native work: adding the binary's folder to
+your user `PATH`, upgrading **PSReadLine** to 2.1+ if needed (CurrentUser scope,
+no admin — 5.1 ships 2.0, which garbles the prefill), and editing `$PROFILE`.
+On zsh it edits `${ZDOTDIR:-$HOME}/.zshrc`; if `yo` is not on `PATH`, the managed
+init block pins the binary you ran setup with. Decline any step and it simply
+moves on. `yo --uninstall` reverses the profile wiring without touching
+`~/.yoconf` or the binary.
 
 ### 3. (Manual alternative)
 
-If you'd rather not use `--setup`, add this to your `$PROFILE` and set a key
-yourself:
+If you'd rather not use `--setup`, add the relevant init line and set a key
+yourself.
 
 ```powershell
 # In $PROFILE:
@@ -76,6 +103,14 @@ if (Get-Command yo -ErrorAction SilentlyContinue) { yo --init powershell | Out-S
 
 ```powershell
 [Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY", "sk-ant-...", "User")
+# or OPENAI_API_KEY for OpenAI
+```
+
+```zsh
+# In ~/.zshrc:
+if command -v yo >/dev/null 2>&1; then eval "$(yo --init zsh)"; fi
+
+export ANTHROPIC_API_KEY="sk-ant-..."
 # or OPENAI_API_KEY for OpenAI
 ```
 
@@ -90,6 +125,12 @@ Just type `yo` followed by what you want, in plain language:
 ```powershell
 yo list every pdf modified this week
 yo which processes are using the most memory
+yo set my git user.email to me@example.com
+```
+
+```sh
+yo list every pdf modified this week
+yo show disk usage for this directory
 yo set my git user.email to me@example.com
 ```
 
@@ -131,14 +172,18 @@ multiplexer gives yo deeper resolved screen history when one is available.
 
 ### Questions with shell metacharacters
 
-Because `yo` hooks the Enter key (via PSReadLine), you can ask questions containing
-`( ) < > & ; | $` without quoting them yourself:
+Because `yo` hooks the Enter key (via PSReadLine on PowerShell and ZLE on zsh),
+you can ask questions containing `( ) < > & ; | $` without quoting them yourself:
 
 ```powershell
 yo what does (Get-Process | Where CPU -gt 10) actually return?
 ```
 
-The line is captured and safely single-quoted before PowerShell parses it.
+```sh
+yo what does (ps -ef | grep ssh) actually return?
+```
+
+The line is captured and safely quoted before the shell parses it.
 
 ---
 
@@ -190,22 +235,24 @@ yo[debug] <- command pending=true  "Get-CimInstance Win32_DiskDrive ..."
 
 ## How it works
 
-`yo` is a native Go binary; the per-shell snippet (`yo --init powershell`) is the only
-shell-specific part. The binary assembles the request (your text + optional screen
-context + session memory), calls the provider with **forced tool use** so the model
-must return a typed `command` or `chat` — never prose to descrape — and prints one JSON
-line. The snippet prefills the command (a one-shot idle handler) or prints the
-answer. Multi-step continuation rides `$env:YO_STATE`; the binary itself stays
-stateless. Full design rationale: [docs/DESIGN-NOTES.md](docs/DESIGN-NOTES.md).
+`yo` is a native Go binary; the per-shell snippet (`yo --init powershell` or
+`yo --init zsh`) is the only shell-specific part. The binary assembles the
+request (your text + optional screen context + session memory), calls the
+provider with **forced tool use** so the model must return a typed `command` or
+`chat` — never prose to descrape — and prints a shell-readable result. The
+snippet prefills the command or prints the answer. Multi-step continuation rides
+`YO_STATE`; the binary itself stays stateless. Full design rationale:
+[docs/DESIGN-NOTES.md](docs/DESIGN-NOTES.md).
 
 ## Command-line reference
 
 | Command | Purpose |
 |---------|---------|
 | `yo <text>`            | Natural-language request → prefilled command or chat answer. |
-| `yo --setup`           | Guided, confirm-each-step installer (profile, PSReadLine, PATH, key). |
-| `yo --uninstall`       | Remove the integration line from your `$PROFILE`. |
+| `yo --setup`           | Guided, confirm-each-step installer (profile, shell checks, key). |
+| `yo --uninstall`       | Remove the integration from your shell profile. |
 | `yo --init powershell` | Print the integration snippet (for your `$PROFILE`). |
+| `yo --init zsh`        | Print the integration snippet (for your `~/.zshrc`). |
 | `yo --check`           | Validate config + key (no network). |
 | `yo --config`          | Show the resolved configuration. |
 | `yo --dry-run "<q>"`   | Print the assembled API request (no key/network). |
