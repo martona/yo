@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package scrollback captures recent terminal output for context. Sources, in
-// precedence order: the zellij multiplexer (resolved screen + full scrollback, any
-// platform) and, as a fallback, the Windows console buffer read directly via the
-// Console API (the visible viewport under Windows Terminal/ConPTY, the full buffer
-// under classic conhost). There is no equivalent on macOS/Linux, where the screen
-// lives in the terminal emulator's private memory and a multiplexer is the only
-// source. Best-effort: on any failure Capture returns "" and the caller proceeds
-// without context. Redaction is applied separately by the caller.
+// precedence order: zellij, tmux, and, as a Windows-only fallback, the console
+// buffer read directly via the Console API (the visible viewport under Windows
+// Terminal/ConPTY, the full buffer under classic conhost). There is no native
+// equivalent on macOS/Linux, where the screen lives in the terminal emulator's
+// private memory and a multiplexer is the only portable source. Best-effort: on
+// any failure Capture returns "" and the caller proceeds without context.
+// Redaction is applied separately by the caller.
 package scrollback
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
@@ -19,12 +20,19 @@ import (
 	"time"
 )
 
+var commandOutput = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, args...).Output()
+}
+
 // Capture returns recent terminal output, stripped of ANSI escapes and trimmed to
-// the last maxLines. It prefers zellij (deep scrollback); failing that it reads the
-// Windows console buffer (a no-op on other OSes). Returns "" when no source is
-// available or on any error (never fatal).
+// the last maxLines. It prefers multiplexers (zellij, then tmux); failing that it
+// reads the Windows console buffer (a no-op on other OSes). Returns "" when no
+// source is available or on any error (never fatal).
 func Capture(maxLines int) string {
 	raw := captureZellij()
+	if raw == "" {
+		raw = captureTmux(maxLines)
+	}
 	if raw == "" {
 		raw = consoleCapture(maxLines) // Windows console buffer; "" elsewhere
 	}
@@ -63,6 +71,27 @@ func captureZellij() string {
 		return ""
 	}
 	return string(data)
+}
+
+// captureTmux returns the resolved pane text from a tmux session, or "" when not
+// in tmux or on any failure.
+func captureTmux(maxLines int) string {
+	if os.Getenv("TMUX") == "" {
+		return "" // opportunistic: only when inside a tmux session
+	}
+
+	args := []string{"capture-pane", "-p"}
+	if maxLines > 0 {
+		args = append(args, "-S", fmt.Sprintf("-%d", maxLines))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := commandOutput(ctx, "tmux", args...)
+	if err != nil {
+		return ""
+	}
+	return string(out)
 }
 
 // ansiRe matches CSI (ESC [ ... final byte) and OSC (ESC ] ... BEL) escape

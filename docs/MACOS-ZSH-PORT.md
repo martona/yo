@@ -315,7 +315,7 @@ capture, editable prefill, continuation, and edited-command reconciliation.
 
 ## Phase 4: Unix Scrollback
 
-Current non-Windows scrollback supports zellij but not tmux. Add tmux capture
+Non-Windows scrollback supports both zellij and tmux. tmux capture was added
 early because tmux is common on macOS.
 
 Capture priority:
@@ -328,7 +328,7 @@ Capture priority:
 tmux command:
 
 ```sh
-tmux capture-pane -pS -200
+tmux capture-pane -p -S -200
 ```
 
 Keep the existing redaction path in `withScrollback`, so captured terminal
@@ -336,6 +336,20 @@ output is scrubbed before it leaves the machine.
 
 Plain macOS terminal scrollback remains unavailable without a multiplexer. That
 is expected and should be documented clearly.
+
+### Phase 4 Result (2026-06-23)
+
+Implemented in `internal/scrollback`. Capture priority is now:
+
+1. zellij via `zellij action dump-screen --full --path <file>`.
+2. tmux via `tmux capture-pane -p -S -<lines>`.
+3. Windows console fallback.
+4. Empty string.
+
+Captured tmux output flows through the same shared post-processing as zellij:
+ANSI/control stripping, last-line trimming, and the existing redaction path in
+`withScrollback`. Tests stub tmux command output directly, so no real tmux
+session or executable is required for CI.
 
 ## Phase 5: Init, Setup, And Uninstall
 

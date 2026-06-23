@@ -33,7 +33,7 @@ import (
 )
 
 // scrollbackMaxLines caps how much recent terminal output we fold into a query
-// when running inside a multiplexer (zellij).
+// when a supported scrollback source is available (zellij, tmux, Windows console).
 const scrollbackMaxLines = 200
 
 // displayWidth is the column width for wrapping prose output (explanation, chat,
@@ -102,6 +102,7 @@ func main() {
 		return
 	case *dumpSB:
 		fmt.Fprintf(os.Stderr, "ZELLIJ=%q\n", os.Getenv("ZELLIJ"))
+		fmt.Fprintf(os.Stderr, "TMUX=%q\n", os.Getenv("TMUX"))
 		out := scrollback.Capture(scrollbackMaxLines)
 		fmt.Fprintf(os.Stderr, "captured %d chars\n", len(out))
 		fmt.Print(out)
@@ -140,7 +141,7 @@ func main() {
 	}
 
 	// Opportunistic terminal context (redacted): fold recent screen output into the
-	// query so "why did that fail?" works. No-op outside zellij.
+	// query so "why did that fail?" works. No-op without a supported source.
 	preLen := len(query)
 	query = withScrollback(query)
 	sbLen := len(query) - preLen
@@ -227,8 +228,8 @@ func runContinue(exitCode int, dryRun bool) {
 
 	// Opportunistic terminal context (redacted): by the time --continue fires, the
 	// just-run step's command and output are on screen, so folding the capture in
-	// lets the model react to real output, not just the exit code. No-op outside
-	// zellij; symmetric with the initial query path in main().
+	// lets the model react to real output, not just the exit code. No-op without a
+	// supported source; symmetric with the initial query path in main().
 	preLen := len(query)
 	query = withScrollback(query)
 	dbg("-> continue %s/%s  exit=%d steps=%d ran=%q  [scrollback +%dch]",
@@ -322,8 +323,8 @@ func clip(s string, n int) string {
 }
 
 // withScrollback folds redacted terminal scrollback into the query. Capture is a
-// no-op (empty) outside zellij, so there we return the query untouched and never
-// even build the redactor. When there is output, secrets are scrubbed before it
+// no-op (empty) without a supported source, so there we return the query untouched
+// and never even build the redactor. When there is output, secrets are scrubbed before it
 // leaves the machine; if any were found, a one-line note goes to stderr (stdout is
 // the JSON contract). Fails closed: if the redactor cannot be built we drop the
 // scrollback rather than send it raw.

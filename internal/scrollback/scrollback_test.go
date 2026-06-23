@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package scrollback
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestStripANSI(t *testing.T) {
 	cases := map[string]string{
@@ -38,5 +41,39 @@ func TestCaptureZellijNotInZellij(t *testing.T) {
 	t.Setenv("ZELLIJ", "")
 	if got := captureZellij(); got != "" {
 		t.Errorf("expected empty zellij capture when not in zellij, got %q", got)
+	}
+}
+
+func TestCaptureTmuxNotInTmux(t *testing.T) {
+	t.Setenv("TMUX", "")
+	if got := captureTmux(10); got != "" {
+		t.Errorf("expected empty tmux capture when not in tmux, got %q", got)
+	}
+}
+
+func TestCaptureTmuxFromCommandOutput(t *testing.T) {
+	t.Setenv("ZELLIJ", "")
+	t.Setenv("TMUX", "/tmp/tmux-test")
+
+	oldCommandOutput := commandOutput
+	t.Cleanup(func() { commandOutput = oldCommandOutput })
+	commandOutput = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name != "tmux" {
+			t.Fatalf("command name = %q, want tmux", name)
+		}
+		wantArgs := []string{"capture-pane", "-p", "-S", "-2"}
+		if len(args) != len(wantArgs) {
+			t.Fatalf("args = %#v, want %#v", args, wantArgs)
+		}
+		for i := range wantArgs {
+			if args[i] != wantArgs[i] {
+				t.Fatalf("args = %#v, want %#v", args, wantArgs)
+			}
+		}
+		return []byte("old\n\x1b[31mkeep1\x1b[0m\nkeep2\n"), nil
+	}
+
+	if got := Capture(2); got != "keep1\nkeep2" {
+		t.Fatalf("Capture via fake tmux = %q, want %q", got, "keep1\nkeep2")
 	}
 }

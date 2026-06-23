@@ -123,11 +123,11 @@ yo why did that fail
 ```
 
 Screen context comes from the Windows console buffer automatically, or from
-**zellij** if you run inside it. Outbound screen text is **secret-scrubbed** before
-it leaves your machine (see [Safety & privacy](#safety--privacy)). Context is
-immensely useful, but under Windows Terminal we're limited to the viewport, not
-actual scrollback data. It is recommended to run **yo** under **zellij** for
-this reason alone.
+**zellij** / **tmux** if you run inside either. Outbound screen text is
+**secret-scrubbed** before it leaves your machine (see
+[Safety & privacy](#safety--privacy)). Context is immensely useful, but under
+Windows Terminal we're limited to the viewport, not actual scrollback data. A
+multiplexer gives yo deeper resolved screen history when one is available.
 
 ### Questions with shell metacharacters
 
