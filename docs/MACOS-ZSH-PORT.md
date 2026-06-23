@@ -63,9 +63,10 @@ using `BUFFER=...`, `CURSOR=...`, and `zle redisplay`.
 
 ### Phase 0 Spike Result (2026-06-23)
 
-Implemented as [`shell/yo-zsh-spike.zsh`](../shell/yo-zsh-spike.zsh). The spike
-is a disposable sourceable zsh script that shadows `yo` with a fake
-implementation and validates the shell mechanics without calling the LLM.
+Implemented as a disposable sourceable zsh script that shadows `yo` with a fake
+implementation and validates the shell mechanics without calling the LLM. The
+spike artifact is not shipped; its validated mechanics were folded into
+`shell/yo.zsh`.
 
 Validated in a real zsh PTY:
 
@@ -288,6 +289,29 @@ export YO_SESSION="${$}-$(openssl rand -hex 4 2>/dev/null || date +%s)"
 
 Prefer a dependency-free nonce if possible. The value only needs to avoid obvious
 PID reuse collisions.
+
+### Phase 3 Result (2026-06-23)
+
+Implemented as `shell/yo.zsh` and embedded via `yo --init zsh`.
+
+What landed:
+
+- `yo` zsh function calls the binary with `--shell zsh --output sh --width`.
+- Result handling uses the Phase 2 `YO_RESULT_*` shell assignments.
+- Command results print the explanation and queue an editable prompt line with
+  `print -r -z`.
+- Pending commands stash `YO_STATE` and arm a continuation.
+- `preexec` captures the exact edited command and sends it back as `YO_RAN`.
+- `precmd` captures the previous exit status, invokes `yo --continue`, and
+  applies the next result.
+- `accept-line` is wrapped to quote raw `yo <query>` input before zsh parses
+  metacharacters.
+- `send-break` clears armed continuation state on Ctrl-C.
+- Re-sourcing avoids stacking duplicate `preexec`/`precmd` hooks or ZLE widgets.
+
+Validated with `zsh -n`, `yo --init zsh | zsh -n`, noninteractive fake-binary
+state checks, and an interactive zsh PTY. The PTY checks covered raw metacharacter
+capture, editable prefill, continuation, and edited-command reconciliation.
 
 ## Phase 4: Unix Scrollback
 

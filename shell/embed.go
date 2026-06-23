@@ -11,5 +11,8 @@ import _ "embed"
 //go:embed yo.ps1
 var PowerShell string
 
+//go:embed yo.zsh
+var Zsh string
+
 //go:embed setup.ps1
 var SetupPowerShell string

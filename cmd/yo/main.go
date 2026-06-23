@@ -64,7 +64,7 @@ func main() {
 	width := flag.Int("width", 0, "wrap prose output to this column width (0 = no wrap; set by the shell integration)")
 	versionFlag := flag.Bool("version", false, "print the version and exit")
 	configFlag := flag.Bool("config", false, "show the resolved configuration and exit")
-	initFlag := flag.String("init", "", "print the shell integration for <shell> (powershell) and exit")
+	initFlag := flag.String("init", "", "print the shell integration for <shell> (powershell or zsh) and exit")
 	setupFlag := flag.Bool("setup", false, "install or repair the shell integration (interactive) and exit")
 	uninstallFlag := flag.Bool("uninstall", false, "remove the shell integration from your profile and exit")
 	outputFlag := flag.String("output", "json", "result output format for shell integrations (json or sh)")
@@ -379,11 +379,12 @@ func stdinIsTerminal() bool {
 
 // usage prints curated help (set as flag.Usage, so it also drives -h / --help).
 func usage() {
-	fmt.Print(`yo - natural-language command assistant for PowerShell.
+	fmt.Print(`yo - natural-language command assistant for your shell.
 
 Usage:
   yo <natural language>     Get a command prefilled at your prompt, or a chat answer.
-  yo --init powershell      Print the shell integration (for your $PROFILE).
+  yo --init powershell      Print the PowerShell integration (for your $PROFILE).
+  yo --init zsh             Print the zsh integration (for your ~/.zshrc).
   yo --setup                Install/repair the integration: profile, PSReadLine, key.
   yo --version              Print the version.
   yo --check                Validate config and the API key (no network).
@@ -391,10 +392,12 @@ Usage:
   yo --dry-run <text>       Print the assembled API request (no key or network).
 
 One-time setup:
-  Easiest:  yo --setup   (wires your $PROFILE, checks PSReadLine, prompts for a key)
-  Manual:   add to your $PROFILE -
+  PowerShell:  yo --setup
+  Manual PowerShell: add to your $PROFILE -
       if (Get-Command yo -ErrorAction SilentlyContinue) { yo --init powershell | Out-String | iex }
-            then set $env:ANTHROPIC_API_KEY (or OPENAI_API_KEY).
+  Manual zsh: add to ~/.zshrc -
+      if command -v yo >/dev/null 2>&1; then eval "$(yo --init zsh)"; fi
+  Then set ANTHROPIC_API_KEY or OPENAI_API_KEY.
 
 Exit codes:
   0   success.
@@ -432,13 +435,16 @@ func versionString() string {
 }
 
 // runInit prints the embedded shell-integration snippet for the named shell, to be
-// sourced from the user's profile (e.g. `yo --init powershell | Out-String | iex`).
+// sourced from the user's profile (e.g. `yo --init powershell | Out-String | iex`,
+// or `eval "$(yo --init zsh)"`).
 func runInit(shellName string) {
 	switch strings.ToLower(shellName) {
 	case "powershell", "pwsh":
 		fmt.Print(shell.PowerShell)
+	case "zsh":
+		fmt.Print(shell.Zsh)
 	default:
-		fmt.Fprintf(os.Stderr, "yo: unknown shell %q (supported: powershell)\n", shellName)
+		fmt.Fprintf(os.Stderr, "yo: unknown shell %q (supported: powershell, zsh)\n", shellName)
 		os.Exit(2)
 	}
 }
