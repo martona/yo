@@ -91,7 +91,10 @@ func TestSetupRunnerZshWritesProfileAndYoconfThenUninstalls(t *testing.T) {
 
 	var out bytes.Buffer
 	runner := newSetupRunner(strings.NewReader("Y\nY\n1\nsk-ant-test\n"), &out, &out)
-	if err := runner.run(false); err != nil {
+	if err := runner.installShell("zsh", "/opt/yo/bin/yo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.configureKey(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -120,7 +123,7 @@ func TestSetupRunnerZshWritesProfileAndYoconfThenUninstalls(t *testing.T) {
 
 	out.Reset()
 	runner = newSetupRunner(strings.NewReader("Y\n"), &out, &out)
-	if err := runner.run(true); err != nil {
+	if err := runner.uninstallShell("zsh"); err != nil {
 		t.Fatal(err)
 	}
 	zshrcData, err = os.ReadFile(zshrc)
