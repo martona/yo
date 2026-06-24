@@ -5,13 +5,12 @@
 Type `yo <find files over 1gb>` at your prompt. The request goes to an LLM, and the
 command it suggests is **prefilled onto your next prompt line**: ready to run,
 edit, or cancel. Ask a question instead and you get a printed answer. No command
-runs until *you* press Enter.
+runs until you press Enter.
 
 `yo` is an acknowledged **GPLv3 derivative work** of
-[yoshell (`pizlonator/yosh`)](https://github.com/pizlonator/yosh) — it reuses
-yoshell's system-prompt design and tool/response protocol (adapted here to
-PowerShell). It does **not** fork yoshell's Bash/Readline C; it is a fresh,
-standalone Go binary plus a small shell-integration snippet. See
+[yoshell (`pizlonator/yosh`)](https://github.com/pizlonator/yosh): it reuses
+yoshell's system-prompt design and tool/response protocol. It is a standalone Go
+binary plus a small shell-integration snippet. See
 [License & provenance](#license--provenance).
 
 ---
@@ -29,12 +28,12 @@ standalone Go binary plus a small shell-integration snippet. See
 ## Install
 
 You need the `yo` binary on your machine, the integration line in your shell
-profile, and an API key. The guided setup does the profile/key work for
-PowerShell and macOS zsh.
+profile, and an API key. Use the platform guide for install/build details:
 
-### 1. Get the binary
+- [Windows PowerShell](docs/WINDOWS.md)
+- [macOS zsh](docs/MACOS.md)
 
-From a release:
+Release assets:
 
 | Platform | Asset |
 |----------|-------|
@@ -47,81 +46,6 @@ Each zip contains the `yo` binary plus license/provenance files. Release assets
 also include [`SHA256SUMS.txt`](https://github.com/martona/yo/releases/latest/download/SHA256SUMS.txt)
 and [`yo.cdx.json`](https://github.com/martona/yo/releases/latest/download/yo.cdx.json).
 
-With a [Go](https://go.dev/dl/) 1.26+ toolchain:
-
-PowerShell:
-
-```powershell
-# From a clone of this repo:
-go build -o yo.exe ./cmd/yo
-
-# ...or install straight from source control (lands in $(go env GOPATH)\bin):
-go install github.com/martona/yo/cmd/yo@latest
-```
-
-macOS zsh:
-
-```sh
-# From a clone of this repo:
-go build -o yo ./cmd/yo
-
-# ...or install straight from source control (lands in $(go env GOPATH)/bin):
-go install github.com/martona/yo/cmd/yo@latest
-```
-
-### 2. Run the guided setup
-
-PowerShell:
-
-```powershell
-.\yo.exe --setup          # or:  & "$(go env GOPATH)\bin\yo.exe" --setup
-```
-
-macOS zsh:
-
-```sh
-yo --setup
-```
-
-`--setup` is an idempotent, **confirm-before-each-change** checklist. It will offer
-to add the integration to your shell profile and configure an API key. Provider/key
-setup is shared across shells and writes `provider` / `key` to `~/.yoconf` only if
-you approve; the standard environment variables still work too. On PowerShell,
-setup shells out only for PowerShell-native work: adding the binary's folder to
-your user `PATH`, upgrading **PSReadLine** to 2.1+ if needed (CurrentUser scope,
-no admin — 5.1 ships 2.0, which garbles the prefill), and editing `$PROFILE`.
-On zsh it edits `${ZDOTDIR:-$HOME}/.zshrc`; if `yo` is not on `PATH`, the managed
-init block pins the binary you ran setup with. Decline any step and it simply
-moves on. `yo --uninstall` reverses the profile wiring without touching
-`~/.yoconf` or the binary.
-
-### 3. (Manual alternative)
-
-If you'd rather not use `--setup`, add the relevant init line and set a key
-yourself.
-
-```powershell
-# In $PROFILE:
-if (Get-Command yo -ErrorAction SilentlyContinue) { yo --init powershell | Out-String | iex }
-```
-
-```powershell
-[Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY", "sk-ant-...", "User")
-# or OPENAI_API_KEY for OpenAI
-```
-
-```zsh
-# In ~/.zshrc:
-if command -v yo >/dev/null 2>&1; then eval "$(yo --init zsh)"; fi
-
-export ANTHROPIC_API_KEY="sk-ant-..."
-# or OPENAI_API_KEY for OpenAI
-```
-
-Open a fresh shell, then `yo --check` to confirm config and key resolve.
-
-### Verification
-
 Every release zip is attested by GitHub's build-provenance flow:
 
 ```sh
@@ -130,14 +54,6 @@ gh attestation verify yo-macos-arm64.zip --repo martona/yo
 ```
 
 You can also compare each asset with `SHA256SUMS.txt`.
-
-Windows binaries are Authenticode-signed. macOS binaries are Developer ID-signed
-and notarized. After extracting a macOS release:
-
-```sh
-codesign -dv --verbose=4 ./yo
-spctl --assess --type execute --verbose ./yo
-```
 
 Release workflow details and signing inputs are in
 [docs/RELEASING.md](docs/RELEASING.md).
@@ -201,10 +117,6 @@ multiplexer gives yo deeper resolved screen history when one is available.
 Because `yo` hooks the Enter key (via PSReadLine on PowerShell and ZLE on zsh),
 you can ask questions containing `( ) < > & ; | $` without quoting them yourself:
 
-```powershell
-yo what does (Get-Process | Where CPU -gt 10) actually return?
-```
-
 ```sh
 yo what does (ps -ef | grep ssh) actually return?
 ```
@@ -226,7 +138,7 @@ every call. Every directive is optional; see [`yoconf.example`](yoconf.example).
 | `base_url` | provider default   | Proxy or OpenAI-compatible endpoint. |
 | `memory`   | `on`               | Cross-call session memory (`memory false` disables). |
 | `debug`    | `off`              | Trace each LLM call's scaffolding to stderr (see below). |
-| `prefill_space` | `off`         | Prefix prefilled commands with a leading space, so history tools that ignore space-prefixed lines (e.g. Atuin) skip them while `Get-History` still records them. |
+| `prefill_space` | `off`         | Prefix prefilled commands with a leading space, so history tools that ignore space-prefixed lines (e.g. Atuin) skip them. |
 
 **Environment variables:** `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` supply the key (and
 pick the provider when none is configured). `YO_DEBUG` overrides the `debug` directive
@@ -243,9 +155,7 @@ yo[debug] <- command pending=true  "Get-CimInstance Win32_DiskDrive ..."
 
 ## Safety & privacy
 
-- **Nothing runs until you press Enter.** `yo` only *prefills*; you review and decide.
-  There is no auto-run — the review step *is* the safety model. The tool assumes an adult at the
-  keyboard.
+- **Nothing runs until you press Enter.** `yo` only *prefills*; you review and decide. The tool assumes an adult at the keyboard.
 - **No telemetry.** `yo` makes exactly one kind of network call: to the LLM API you
   configure (Anthropic, OpenAI, or your `base_url`). Nothing else phones home; there
   is no analytics of any kind.
@@ -285,17 +195,6 @@ snippet prefills the command or prints the answer. Multi-step continuation rides
 | `yo --version` / `--help` | Version / help. |
 
 Exit codes: `0` success, `1` runtime error, `2` usage error.
-
-## Building from source
-
-```powershell
-$env:Path = "C:\Program Files\Go\bin;$env:Path"   # if Go isn't already on PATH
-go build -o yo.exe ./cmd/yo
-go test ./...
-go vet ./...
-```
-
----
 
 ## License & provenance
 
