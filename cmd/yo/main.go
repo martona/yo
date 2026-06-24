@@ -54,6 +54,12 @@ var version = "dev"
 // scaffolding around each LLM call to stderr. Set once, right after config load.
 var debugOn bool
 
+// noThinking suppresses the transient "thinking..." stderr indicator. The shell
+// integration sets it (--no-thinking) on continuation steps, which run from a
+// prompt hook where a child process's transient stderr write does not paint -- so
+// the snippet renders the indicator itself there. Set once in main().
+var noThinking bool
+
 func main() {
 	dryRun := flag.Bool("dry-run", false, "print the assembled API request to stdout and exit (no network or key needed)")
 	check := flag.Bool("check", false, "validate config and the API key (no network), then exit")
@@ -61,6 +67,7 @@ func main() {
 	exitCode := flag.Int("exit", 0, "exit code of the just-run command (with --continue)")
 	dumpSB := flag.Bool("scrollback", false, "print the captured terminal scrollback and exit (debug)")
 	width := flag.Int("width", 0, "wrap prose output to this column width (0 = no wrap; set by the shell integration)")
+	noThinkingFlag := flag.Bool("no-thinking", false, "suppress the transient 'thinking...' stderr indicator (set by the shell integration on continuation steps, where it renders its own)")
 	versionFlag := flag.Bool("version", false, "print the version and exit")
 	configFlag := flag.Bool("config", false, "show the resolved configuration and exit")
 	initFlag := flag.String("init", "", "print the shell integration for <shell> (powershell or zsh) and exit")
@@ -71,6 +78,7 @@ func main() {
 	flag.Usage = usage
 	flag.Parse()
 	displayWidth = *width
+	noThinking = *noThinkingFlag
 	outputFormat = strings.ToLower(strings.TrimSpace(*outputFlag))
 	if *shellFlag != "" {
 		os.Setenv("YO_SHELL", *shellFlag)
@@ -281,9 +289,13 @@ func generate(p llm.Provider, query string) (llm.Result, error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	fmt.Fprint(os.Stderr, "thinking...")
+	if !noThinking {
+		fmt.Fprint(os.Stderr, "thinking...")
+	}
 	res, err := p.Generate(ctx, query)
-	fmt.Fprint(os.Stderr, "\r            \r") // clear the transient indicator
+	if !noThinking {
+		fmt.Fprint(os.Stderr, "\r            \r") // clear the transient indicator
+	}
 	return res, err
 }
 

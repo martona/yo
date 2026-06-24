@@ -184,7 +184,19 @@ function Invoke-YoContinuation([bool]$ok) {
     # leading space that Get-History keeps; strip it so the suggested-vs-ran diff is
     # clean (a manually typed leading space is insignificant anyway).
     $env:YO_RAN = if ($h) { $h.CommandLine.TrimStart() } else { '' }
-    $json = & $bin --continue --exit $code --width (Get-YoWidth)   # inherits $env:YO_STATE
+    # Render the "thinking..." indicator here, not in the binary. On this path the
+    # binary runs from the prompt function, where a CHILD process's transient
+    # (carriage-return-cleared) stderr write does not paint -- but the same write
+    # from THIS (the shell) process does. So we pass --no-thinking to silence the
+    # binary's copy (one writer, no double) and emit/clear it ourselves. The
+    # enclosing prompt wraps this call in try/catch, so a console-write failure can
+    # never wedge the prompt; the finally guarantees the indicator is cleared.
+    try { [Console]::Error.Write('thinking...') } catch {}
+    try {
+        $json = & $bin --continue --exit $code --no-thinking --width (Get-YoWidth)  # inherits $env:YO_STATE
+    } finally {
+        try { [Console]::Error.Write("`r            `r") } catch {}
+    }
     $env:YO_RAN = ''
     Invoke-YoResult $json
     if ($global:YoArmed) { $global:YoBaseline = $lastId }  # re-armed: fire on the next run
