@@ -14,17 +14,6 @@ PowerShell). It does **not** fork yoshell's Bash/Readline C; it is a fresh,
 standalone Go binary plus a small shell-integration snippet. See
 [License & provenance](#license--provenance).
 
-```powershell
-PS> yo is my usb stick mounted right now?
-# (a command is prefilled on the next line; you press Enter to run it)
-PS> Get-CimInstance Win32_DiskDrive -Filter "InterfaceType='USB'" | ...
-No, your USB stick doesn't appear to be mounted. The command returned no rows,
-which means no USB disk currently has a drive letter. Try reinserting it.
-```
-
-That second paragraph is the model **reading the command's output and answering**:
-`yo` ran a diagnostic, saw the result, and explained it. More on that below.
-
 ---
 
 ## Status
