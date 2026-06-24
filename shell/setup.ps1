@@ -97,7 +97,33 @@ if ($psrl -and ($psrl -ge [version]'2.1')) {
     }
 }
 
-# 3. profile wiring
+# 3. execution policy. Windows PowerShell defaults to Restricted, which blocks the
+#    profile from running AND PSReadLine from loading -- the real failure on 5.x.
+#    NB: setup runs under -ExecutionPolicy Bypass, so the *effective* policy here is
+#    Bypass and useless; check the scopes a normal interactive session will use.
+Step "Checking the PowerShell execution policy"
+$cuPol  = Get-ExecutionPolicy -Scope CurrentUser
+$lmPol  = Get-ExecutionPolicy -Scope LocalMachine
+$future = if ($cuPol -ne 'Undefined') { $cuPol } else { $lmPol }
+if ($future -eq 'Undefined' -or $future -in @('Restricted', 'AllSigned')) {
+    Info "Execution policy is '$future' -- that blocks your PowerShell profile from"
+    Info "running and PSReadLine from loading. RemoteSigned (CurrentUser, no admin) fixes it."
+    if (Confirm "Set it to RemoteSigned?") {
+        try {
+            Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force -ErrorAction Stop
+            Good "execution policy set to RemoteSigned for your user"
+        } catch {
+            Warn "couldn't set it: $($_.Exception.Message)"
+            Warn "run it yourself:  Set-ExecutionPolicy RemoteSigned -Scope CurrentUser"
+        }
+    } else {
+        Warn "skipped -- your profile line and PSReadLine may not load until you set it"
+    }
+} else {
+    Good "execution policy '$future' allows scripts"
+}
+
+# 4. profile wiring
 Step "Wiring the integration into your profile"
 if ((Get-Content $PROFILE -Raw -ErrorAction SilentlyContinue) -match [regex]::Escape($marker)) {
     Good "already wired in $PROFILE"
