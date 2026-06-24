@@ -69,7 +69,7 @@ type openaiResponse struct {
 func (p *openaiProvider) Request(query string) ([]byte, error) {
 	req := openaiRequest{
 		Model:           p.model,
-		Instructions:    openaiSystemPrompt(p.model, p.profile),
+		Instructions:    openaiSystemPrompt(p.model, "openai", p.profile),
 		Input:           query,
 		MaxOutputTokens: openaiMaxTokens,
 		Tools:           openaiTools(p.profile),

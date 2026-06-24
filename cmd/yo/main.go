@@ -397,7 +397,7 @@ One-time setup:
       if (Get-Command yo -ErrorAction SilentlyContinue) { yo --init powershell | Out-String | iex }
   Manual zsh: add to ~/.zshrc -
       if command -v yo >/dev/null 2>&1; then eval "$(yo --init zsh)"; fi
-  Then set ANTHROPIC_API_KEY or OPENAI_API_KEY.
+  Then set ANTHROPIC_API_KEY, OPENAI_API_KEY, or XAI_API_KEY.
 
 Exit codes:
   0   success.

@@ -109,8 +109,8 @@ will be rendered on a terminal.
 // openaiSystemPrompt biases hard toward commands with worked examples, because
 // (per yoshell) Responses-API models over-use chat for things a shell assistant
 // should answer with a command.
-func openaiSystemPrompt(model string, profile CommandProfile) string {
-	return fmt.Sprintf(`You are powered by %s (provider: openai).
+func openaiSystemPrompt(model, provider string, profile CommandProfile) string {
+	return fmt.Sprintf(`You are powered by %s (provider: %s).
 
 You are a command assistant for a %s. The user is at an interactive prompt; any
 command you generate is prefilled for them to review, edit, or run -- nothing
@@ -136,7 +136,7 @@ machine, you MUST use the command tool. Examples that MUST use command:
 
 %s
 
-%s`, model, profile.PromptDescription, profile.CommandGuidance, formatExamples(profile.OpenAIExamples), multiStep(profile), diagnostics)
+%s`, model, provider, profile.PromptDescription, profile.CommandGuidance, formatExamples(profile.OpenAIExamples), multiStep(profile), diagnostics)
 }
 
 func formatExamples(examples []CommandExample) string {

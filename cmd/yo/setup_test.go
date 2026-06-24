@@ -27,6 +27,9 @@ func TestParseProviderChoice(t *testing.T) {
 		"Anthropic": "anthropic",
 		"2":         "openai",
 		"OPENAI":    "openai",
+		"3":         "grok",
+		"Grok":      "grok",
+		"xai":       "grok",
 		"":          "",
 		"bogus":     "",
 	}

@@ -34,7 +34,7 @@ func TestPromptProfilesSplitPowerShellAndPOSIX(t *testing.T) {
 	ps := powerShellProfile()
 	posix := posixProfile("zsh")
 
-	psPrompt := openaiSystemPrompt("model", ps)
+	psPrompt := openaiSystemPrompt("model", "openai", ps)
 	for _, want := range []string{"PowerShell prompt on Windows", "Get-PSDrive", "Get-ChildItem"} {
 		if !strings.Contains(psPrompt, want) {
 			t.Errorf("PowerShell prompt missing %q:\n%s", want, psPrompt)
@@ -44,7 +44,7 @@ func TestPromptProfilesSplitPowerShellAndPOSIX(t *testing.T) {
 		t.Errorf("PowerShell prompt leaked POSIX examples:\n%s", psPrompt)
 	}
 
-	posixPrompt := openaiSystemPrompt("model", posix)
+	posixPrompt := openaiSystemPrompt("model", "openai", posix)
 	for _, want := range []string{"zsh prompt on a Unix-like system", "POSIX/Unix shell commands", "df -h", "ls -la"} {
 		if !strings.Contains(posixPrompt, want) {
 			t.Errorf("POSIX prompt missing %q:\n%s", want, posixPrompt)

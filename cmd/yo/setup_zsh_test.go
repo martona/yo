@@ -89,6 +89,7 @@ func TestSetupRunnerZshWritesProfileAndYoconfThenUninstalls(t *testing.T) {
 	t.Setenv("YO_SHELL", "zsh")
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("XAI_API_KEY", "")
 
 	var out bytes.Buffer
 	runner := newSetupRunner(strings.NewReader("Y\nY\n1\nsk-ant-test\n"), &out, &out)

@@ -147,7 +147,7 @@ func (s *setupRunner) runPowerShellShellSetup(exe string, uninstall bool) error 
 
 func (s *setupRunner) configureKey() error {
 	s.step("Checking for an API key")
-	if os.Getenv("ANTHROPIC_API_KEY") != "" || os.Getenv("OPENAI_API_KEY") != "" {
+	if os.Getenv("ANTHROPIC_API_KEY") != "" || os.Getenv("OPENAI_API_KEY") != "" || os.Getenv("XAI_API_KEY") != "" {
 		s.good("an API key is set in your environment")
 		return nil
 	}
@@ -158,7 +158,7 @@ func (s *setupRunner) configureKey() error {
 		s.warn("could not read ~/.yoconf yet: " + err.Error())
 	}
 
-	s.warn("no ANTHROPIC_API_KEY or OPENAI_API_KEY found")
+	s.warn("no ANTHROPIC_API_KEY, OPENAI_API_KEY, or XAI_API_KEY found")
 	yoconf, err := yoconfPathFromEnv(os.Getenv)
 	if err != nil {
 		return err
@@ -167,16 +167,17 @@ func (s *setupRunner) configureKey() error {
 	s.info("    " + yoconf)
 	s.info("The standard environment variables still work too; ~/.yoconf is the portable setup path.")
 	if !s.confirm("Write provider and key to ~/.yoconf?") {
-		s.warn("skipped -- set ANTHROPIC_API_KEY or OPENAI_API_KEY when ready")
+		s.warn("skipped -- set ANTHROPIC_API_KEY, OPENAI_API_KEY, or XAI_API_KEY when ready")
 		return nil
 	}
 
 	s.info("Which provider do you want to configure?")
 	s.info("    1) Anthropic (Claude)")
 	s.info("    2) OpenAI (GPT)")
-	provider := parseProviderChoice(s.prompt("Choose [1/2] (Enter to skip)"))
+	s.info("    3) Grok (xAI)")
+	provider := parseProviderChoice(s.prompt("Choose [1/2/3] (Enter to skip)"))
 	if provider == "" {
-		s.warn("skipped -- set ANTHROPIC_API_KEY or OPENAI_API_KEY when ready")
+		s.warn("skipped -- set ANTHROPIC_API_KEY, OPENAI_API_KEY, or XAI_API_KEY when ready")
 		return nil
 	}
 
@@ -294,6 +295,8 @@ func parseProviderChoice(choice string) string {
 		return "anthropic"
 	case "2", "openai":
 		return "openai"
+	case "3", "grok", "xai":
+		return "grok"
 	default:
 		return ""
 	}
@@ -302,8 +305,8 @@ func parseProviderChoice(choice string) string {
 func upsertYoconfProviderKey(path, provider, key string) error {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	key = strings.TrimSpace(key)
-	if provider != "anthropic" && provider != "openai" {
-		return fmt.Errorf("provider %q not supported (use \"anthropic\" or \"openai\")", provider)
+	if provider != "anthropic" && provider != "openai" && provider != "grok" {
+		return fmt.Errorf("provider %q not supported (use \"anthropic\", \"openai\", or \"grok\")", provider)
 	}
 	if key == "" {
 		return fmt.Errorf("API key cannot be empty")

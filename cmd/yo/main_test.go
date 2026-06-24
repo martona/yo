@@ -103,6 +103,7 @@ func TestDryRunUsesZshPromptProfile(t *testing.T) {
 		"TMUX=",
 		"ANTHROPIC_API_KEY=",
 		"OPENAI_API_KEY=",
+		"XAI_API_KEY=",
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
