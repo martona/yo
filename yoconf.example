@@ -38,7 +38,7 @@ provider anthropic
 # Cross-call session memory (optional; default ON). yo keeps a small per-session
 # history of your recent exchanges (in a temp file) so follow-ups like "delete the
 # top one" resolve. Set false to disable.
-# memory false
+# memory true
 
 # Debug tracing (optional; default OFF). When on, yo prints a one-line trace of the
 # scaffolding around each LLM call to stderr: provider/model, your query, the SIZES
@@ -46,7 +46,7 @@ provider anthropic
 # and the response type + pending flag. Useful for seeing whether the model asked
 # for a continuation. The stdout JSON contract is unaffected. $env:YO_DEBUG
 # overrides this for a single session (truthy = on).
-# debug true
+# debug false
 
 # Prefill with a leading space (optional; default OFF). When on, prefilled commands
 # get a single leading space. History tools that ignore space-prefixed lines (e.g.
@@ -55,4 +55,4 @@ provider anthropic
 # sees the command. On bash, HISTCONTROL=ignorespace also drops them from shell
 # history; on zsh, setopt HIST_IGNORE_SPACE does the same. Verify your tools honor
 # leading-space before relying on it.
-# prefill_space true
+# prefill_space false

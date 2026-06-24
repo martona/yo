@@ -105,12 +105,13 @@ yo why did that fail
 #  -> "You typed `buid` instead of `build`. Try: go build ./cmd/yo"
 ```
 
-Screen context comes from the Windows console buffer automatically, or from
-**zellij** / **tmux** if you run inside either. Outbound screen text is
-**secret-scrubbed** before it leaves your machine (see
+Screen context comes from **tmux** / **zellij** if you run inside either, or
+from the Windows console buffer. Outbound screen text is **secret-scrubbed**
+before it leaves your machine (see
 [Safety & privacy](#safety--privacy)). Context is immensely useful, but under
 Windows Terminal we're limited to the viewport, not actual scrollback data. A
-multiplexer gives yo deeper resolved screen history when one is available.
+multiplexer gives yo deeper resolved screen history when one is available. On macOS
+**tmux** is strongly recommended, otherwise no context is available to the LLM.
 
 ### Questions with shell metacharacters
 
