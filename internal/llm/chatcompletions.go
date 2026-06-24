@@ -90,6 +90,10 @@ type chatResponse struct {
 			} `json:"tool_calls"`
 		} `json:"message"`
 	} `json:"choices"`
+	Usage *struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error"`
@@ -174,6 +178,11 @@ func parseChat(body []byte, status int) (Result, error) {
 	if status < 200 || status >= 300 {
 		return Result{}, fmt.Errorf("API returned status %d", status)
 	}
+	inTok, outTok := 0, 0
+	if resp.Usage != nil {
+		inTok, outTok = resp.Usage.PromptTokens, resp.Usage.CompletionTokens
+	}
+
 	for _, choice := range resp.Choices {
 		for _, tc := range choice.Message.ToolCalls {
 			switch tc.Function.Name {
@@ -186,7 +195,7 @@ func parseChat(body []byte, status int) (Result, error) {
 				if err := json.Unmarshal([]byte(tc.Function.Arguments), &in); err != nil {
 					return Result{}, fmt.Errorf("bad command tool input: %w", err)
 				}
-				return Result{Type: "command", Command: in.Command, Explanation: in.Explanation, Pending: in.Pending}, nil
+				return Result{Type: "command", Command: in.Command, Explanation: in.Explanation, Pending: in.Pending, InputTokens: inTok, OutputTokens: outTok}, nil
 			case toolChat:
 				var in struct {
 					Response string `json:"response"`
@@ -194,7 +203,7 @@ func parseChat(body []byte, status int) (Result, error) {
 				if err := json.Unmarshal([]byte(tc.Function.Arguments), &in); err != nil {
 					return Result{}, fmt.Errorf("bad chat tool input: %w", err)
 				}
-				return Result{Type: "chat", Response: in.Response}, nil
+				return Result{Type: "chat", Response: in.Response, InputTokens: inTok, OutputTokens: outTok}, nil
 			}
 		}
 	}

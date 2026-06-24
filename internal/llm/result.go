@@ -27,4 +27,11 @@ type Result struct {
 	PrefillSpace bool `json:"prefillSpace,omitempty"`
 
 	Message string `json:"message,omitempty"` // populated when Type == "error"
+
+	// InputTokens / OutputTokens carry the provider-reported usage for this call,
+	// for local token accounting (yo --tokens). json:"-" keeps them out of the
+	// binary<->snippet contract: neither the JSON nor the sh encoder emits them;
+	// they are read in-process right after the call and folded into the tally.
+	InputTokens  int `json:"-"`
+	OutputTokens int `json:"-"`
 }

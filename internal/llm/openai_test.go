@@ -33,6 +33,12 @@ func TestParseOpenAI(t *testing.T) {
 			want:   Result{Type: "chat", Response: "A pipe passes output."},
 		},
 		{
+			name:   "usage reported",
+			body:   `{"output":[{"type":"function_call","name":"command","arguments":"{\"command\":\"ls\",\"explanation\":\"x\"}"}],"usage":{"input_tokens":123,"output_tokens":45},"error":null}`,
+			status: 200,
+			want:   Result{Type: "command", Command: "ls", Explanation: "x", InputTokens: 123, OutputTokens: 45},
+		},
+		{
 			name:    "error body (non-null)",
 			body:    `{"error":{"message":"invalid api key"}}`,
 			status:  401,

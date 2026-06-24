@@ -60,7 +60,11 @@ type anthropicContentBlock struct {
 type anthropicResponse struct {
 	Type    string                  `json:"type"`
 	Content []anthropicContentBlock `json:"content"`
-	Error   *struct {
+	Usage   *struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
+	Error *struct {
 		Message string `json:"message"`
 	} `json:"error"`
 }
@@ -145,6 +149,11 @@ func parseAnthropic(body []byte, status int) (Result, error) {
 		return Result{}, fmt.Errorf("API returned status %d", status)
 	}
 
+	inTok, outTok := 0, 0
+	if resp.Usage != nil {
+		inTok, outTok = resp.Usage.InputTokens, resp.Usage.OutputTokens
+	}
+
 	for _, b := range resp.Content {
 		if b.Type != "tool_use" {
 			continue
@@ -159,7 +168,7 @@ func parseAnthropic(body []byte, status int) (Result, error) {
 			if err := json.Unmarshal(b.Input, &in); err != nil {
 				return Result{}, fmt.Errorf("bad command tool input: %w", err)
 			}
-			return Result{Type: "command", Command: in.Command, Explanation: in.Explanation, Pending: in.Pending}, nil
+			return Result{Type: "command", Command: in.Command, Explanation: in.Explanation, Pending: in.Pending, InputTokens: inTok, OutputTokens: outTok}, nil
 		case toolChat:
 			var in struct {
 				Response string `json:"response"`
@@ -167,7 +176,7 @@ func parseAnthropic(body []byte, status int) (Result, error) {
 			if err := json.Unmarshal(b.Input, &in); err != nil {
 				return Result{}, fmt.Errorf("bad chat tool input: %w", err)
 			}
-			return Result{Type: "chat", Response: in.Response}, nil
+			return Result{Type: "chat", Response: in.Response, InputTokens: inTok, OutputTokens: outTok}, nil
 		}
 	}
 	return Result{}, fmt.Errorf("model returned no command or chat")

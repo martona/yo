@@ -33,6 +33,12 @@ func TestParseAnthropic(t *testing.T) {
 			want:   Result{Type: "chat", Response: "A pipe passes output."},
 		},
 		{
+			name:   "usage reported",
+			body:   `{"type":"message","content":[{"type":"tool_use","name":"command","input":{"command":"ls","explanation":"x"}}],"usage":{"input_tokens":123,"output_tokens":45}}`,
+			status: 200,
+			want:   Result{Type: "command", Command: "ls", Explanation: "x", InputTokens: 123, OutputTokens: 45},
+		},
+		{
 			name:   "text block before tool_use",
 			body:   `{"type":"message","content":[{"type":"text","text":"thinking"},{"type":"tool_use","name":"command","input":{"command":"Get-Location","explanation":"x"}}]}`,
 			status: 200,

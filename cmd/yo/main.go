@@ -20,6 +20,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 
 	"github.com/martona/yo/internal/config"
@@ -28,6 +29,7 @@ import (
 	"github.com/martona/yo/internal/scrollback"
 	"github.com/martona/yo/internal/session"
 	"github.com/martona/yo/internal/textwrap"
+	tokens "github.com/martona/yo/internal/usage"
 	"github.com/martona/yo/shell"
 )
 
@@ -69,6 +71,8 @@ func main() {
 	width := flag.Int("width", 0, "wrap prose output to this column width (0 = no wrap; set by the shell integration)")
 	noThinkingFlag := flag.Bool("no-thinking", false, "suppress the transient 'thinking...' stderr indicator (set by the shell integration on continuation steps, where it renders its own)")
 	versionFlag := flag.Bool("version", false, "print the version and exit")
+	tokensFlag := flag.Bool("tokens", false, "show token usage (this session and all-time) and exit")
+	tokensResetFlag := flag.Bool("tokens-reset", false, "reset the all-time token counter and exit")
 	configFlag := flag.Bool("config", false, "show the resolved configuration and exit")
 	initFlag := flag.String("init", "", "print the shell integration for <shell> (powershell or zsh) and exit")
 	setupFlag := flag.Bool("setup", false, "install or repair the shell integration (interactive) and exit")
@@ -97,6 +101,13 @@ func main() {
 		return
 	case *configFlag:
 		runConfig()
+		return
+	case *tokensFlag:
+		runTokens()
+		return
+	case *tokensResetFlag:
+		tokens.ResetGlobal()
+		fmt.Println("yo: global token counter reset.")
 		return
 	case *setupFlag || *uninstallFlag:
 		runSetup(*uninstallFlag)
@@ -187,6 +198,7 @@ func main() {
 	}
 	res.PrefillSpace = cfg.PrefillSpace // snippet prefixes the prefill with a space (history hygiene)
 	dbgResult(res)
+	tokens.Add(os.Getenv("YO_SESSION"), res.InputTokens, res.OutputTokens) // local token tally (yo --tokens)
 
 	// A pending command opens a fresh continuation chain (stored under the RAW
 	// query, not the context-augmented one). A terminal result -- a chat or a
@@ -265,6 +277,7 @@ func runContinue(exitCode int, dryRun bool) {
 	}
 	res.PrefillSpace = cfg.PrefillSpace
 	dbgResult(res)
+	tokens.Add(os.Getenv("YO_SESSION"), res.InputTokens, res.OutputTokens) // local token tally (yo --tokens)
 
 	if res.Type == "command" {
 		st.AddStep(res.Command, res.Explanation)
@@ -395,30 +408,20 @@ func usage() {
 
 Usage:
   yo <natural language>     Get a command prefilled at your prompt, or a chat answer.
+  yo --tokens               Show token usage (this session and all-time).
+  yo --tokens-reset         Reset the all-time token counter.
+  yo --setup                Install/repair the integration: profile, shell checks, key.
+  yo --check                Validate config and the API key.
+  yo --config               Show the resolved configuration.
+  yo --version              Print the version.
+  yo --dry-run <text>       Print the assembled API request (no key or network).
   yo --init powershell      Print the PowerShell integration (for your $PROFILE).
   yo --init zsh             Print the zsh integration (for your ~/.zshrc).
-  yo --setup                Install/repair the integration: profile, shell checks, key.
-  yo --version              Print the version.
-  yo --check                Validate config and the API key (no network).
-  yo --config               Show the resolved configuration.
-  yo --dry-run <text>       Print the assembled API request (no key or network).
 
 One-time setup:
   PowerShell or macOS zsh:  yo --setup
-  Manual PowerShell: add to your $PROFILE -
-      if (Get-Command yo -ErrorAction SilentlyContinue) { yo --init powershell | Out-String | iex }
-  Manual zsh: add to ~/.zshrc -
-      if command -v yo >/dev/null 2>&1; then eval "$(yo --init zsh)"; fi
-  Then set ANTHROPIC_API_KEY, OPENAI_API_KEY, XAI_API_KEY, or GEMINI_API_KEY.
-
-Exit codes:
-  0   success.
-  1   runtime error (bad config, missing/invalid key, network or API failure).
-  2   usage error (no query given, or an unknown --init shell).
-
 Config file: ~/.yoconf (provider, model, key, base_url, memory, debug, prefill_space).
-Debug: set "debug true" in ~/.yoconf (or $env:YO_DEBUG) to trace each LLM call's
-       request/response scaffolding to stderr.
+
 Safety: nothing runs until you read the command and press Enter.
 `)
 }
@@ -501,6 +504,58 @@ func runConfig() {
 	}
 	fmt.Printf("provider: %s\nmodel:    %s\nkey:      %s\nmemory:   %s\ndebug:    %s\nprefill:  %s\nyoconf:   %s\n",
 		cfg.Provider, cfg.Model, key, mem, dbgState, psState, yoconf)
+}
+
+// runTokens prints token usage for the current shell session and all-time, as a
+// human-readable, head-math-friendly table (no network, no key). The counts come
+// from the local tally every yo call folds into (internal/usage).
+func runTokens() {
+	sess, global, since := tokens.Report(os.Getenv("YO_SESSION"))
+	w := commaWidth(5, sess.In, sess.Out, sess.In+sess.Out, global.In, global.Out, global.In+global.Out)
+	fmt.Println("yo token usage")
+	fmt.Println()
+	fmt.Printf("  %-8s %*s  %*s  %*s\n", "", w, "in", w, "out", w, "total")
+	fmt.Printf("  %-8s %*s  %*s  %*s\n", "session", w, comma(sess.In), w, comma(sess.Out), w, comma(sess.In+sess.Out))
+	gline := fmt.Sprintf("  %-8s %*s  %*s  %*s", "global", w, comma(global.In), w, comma(global.Out), w, comma(global.In+global.Out))
+	if !since.IsZero() {
+		gline += "   since " + since.Format("2006-01-02")
+	}
+	fmt.Println(gline)
+	fmt.Println()
+	fmt.Println("  (session = this shell; reset the global counter with: yo --tokens-reset)")
+}
+
+// comma formats n with thousand separators (1234567 -> "1,234,567").
+func comma(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	neg := strings.HasPrefix(s, "-")
+	if neg {
+		s = s[1:]
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteByte(s[i])
+	}
+	if neg {
+		return "-" + b.String()
+	}
+	return b.String()
+}
+
+// commaWidth returns a column width for a set of token counts: the widest
+// comma-formatted value, but never less than floor (so the in/out/total headers
+// stay aligned when the numbers are small).
+func commaWidth(floor int, vals ...int64) int {
+	w := floor
+	for _, v := range vals {
+		if n := len(comma(v)); n > w {
+			w = n
+		}
+	}
+	return w
 }
 
 // runCheck validates config and the API key without any network call.

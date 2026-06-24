@@ -61,7 +61,11 @@ type openaiOutputItem struct {
 
 type openaiResponse struct {
 	Output []openaiOutputItem `json:"output"`
-	Error  *struct {
+	Usage  *struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
+	Error *struct {
 		Message string `json:"message"`
 	} `json:"error"` // null on success — checked for non-nil + non-empty
 }
@@ -147,6 +151,11 @@ func parseOpenAI(body []byte, status int) (Result, error) {
 		return Result{}, fmt.Errorf("API returned status %d", status)
 	}
 
+	inTok, outTok := 0, 0
+	if resp.Usage != nil {
+		inTok, outTok = resp.Usage.InputTokens, resp.Usage.OutputTokens
+	}
+
 	for _, item := range resp.Output {
 		if item.Type != "function_call" {
 			continue
@@ -161,7 +170,7 @@ func parseOpenAI(body []byte, status int) (Result, error) {
 			if err := json.Unmarshal([]byte(item.Arguments), &in); err != nil {
 				return Result{}, fmt.Errorf("bad command tool input: %w", err)
 			}
-			return Result{Type: "command", Command: in.Command, Explanation: in.Explanation, Pending: in.Pending}, nil
+			return Result{Type: "command", Command: in.Command, Explanation: in.Explanation, Pending: in.Pending, InputTokens: inTok, OutputTokens: outTok}, nil
 		case toolChat:
 			var in struct {
 				Response string `json:"response"`
@@ -169,7 +178,7 @@ func parseOpenAI(body []byte, status int) (Result, error) {
 			if err := json.Unmarshal([]byte(item.Arguments), &in); err != nil {
 				return Result{}, fmt.Errorf("bad chat tool input: %w", err)
 			}
-			return Result{Type: "chat", Response: in.Response}, nil
+			return Result{Type: "chat", Response: in.Response, InputTokens: inTok, OutputTokens: outTok}, nil
 		}
 	}
 	return Result{}, fmt.Errorf("model returned no command or chat")
