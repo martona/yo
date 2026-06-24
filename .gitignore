@@ -11,5 +11,7 @@
 /release-stage/
 /pkg-*/
 /third-party-licenses/
+/tpl-tree/
+/THIRD-PARTY-LICENSES.txt
 /yo-*.exe
 *.cdx.json
