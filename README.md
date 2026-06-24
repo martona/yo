@@ -18,7 +18,7 @@ binary plus a small shell-integration snippet. See
 ## Status
 
 - **Works today:** Windows PowerShell **7+** (recommended) and **5.1**, plus
-  macOS **zsh**. Providers: **Anthropic** (default), **OpenAI**, and **Grok** (xAI).
+  macOS **zsh**. Providers: **Anthropic** (default), **OpenAI**, **Grok** (xAI), and **Gemini** (Google).
 - **Release builds:** Windows zips are Authenticode-signed. macOS zips are
   Developer ID-signed and notarized by Apple.
 - **Planned:** Linux builds and bash integration; `winget` package submission; brew tap for macOS.
@@ -157,7 +157,7 @@ yo[debug] <- command pending=true  "Get-CimInstance Win32_DiskDrive ..."
 
 - **Nothing runs until you press Enter.** `yo` only *prefills*; you review and decide. The tool assumes an adult at the keyboard.
 - **No telemetry.** `yo` makes exactly one kind of network call: to the LLM API you
-  configure (Anthropic, OpenAI, Grok, or your `base_url`). Nothing else phones home; there
+  configure (Anthropic, OpenAI, Grok, Gemini, or your `base_url`). Nothing else phones home; there
   is no analytics of any kind.
 - **Secrets are redacted** from any screen output before it is sent, using
   [gitleaks'](https://github.com/gitleaks/gitleaks) detection engine (embedded; nothing

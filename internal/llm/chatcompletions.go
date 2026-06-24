@@ -40,6 +40,19 @@ func newGrok(cfg config.Config) *chatProvider {
 	}
 }
 
+// newGemini wires Google's Gemini (via its OpenAI-compatible endpoint) onto the
+// shared Chat Completions client.
+func newGemini(cfg config.Config) *chatProvider {
+	return &chatProvider{
+		model:      cfg.Model,
+		key:        cfg.Key,
+		baseURL:    cfg.BaseURL,
+		defaultURL: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+		provider:   "google",
+		profile:    DetectCommandProfile(),
+	}
+}
+
 // Chat Completions function tool: nested under "function" (vs the Responses API's
 // flat tool shape in openai.go).
 type chatTool struct {

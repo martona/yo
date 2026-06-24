@@ -45,10 +45,11 @@ var defaults = map[string]providerDefaults{
 	"anthropic": {model: "claude-opus-4-8", envKey: "ANTHROPIC_API_KEY"},
 	"openai":    {model: "gpt-5.5", envKey: "OPENAI_API_KEY"},
 	"grok":      {model: "grok-4.3", envKey: "XAI_API_KEY"},
+	"gemini":    {model: "gemini-3.5-flash", envKey: "GEMINI_API_KEY"},
 }
 
 // inferOrder is the probe order when ~/.yoconf names no provider.
-var inferOrder = []string{"anthropic", "openai", "grok"}
+var inferOrder = []string{"anthropic", "openai", "grok", "gemini"}
 
 // Load reads ~/.yoconf (if present), resolves the provider, then fills in the
 // default model and the API key (from the provider's env var) when not already
@@ -73,7 +74,7 @@ func Load() (Config, error) {
 
 	d, ok := defaults[cfg.Provider]
 	if !ok {
-		return cfg, fmt.Errorf("provider %q not supported (use \"anthropic\", \"openai\", or \"grok\")", cfg.Provider)
+		return cfg, fmt.Errorf("provider %q not supported (use \"anthropic\", \"openai\", \"grok\", or \"gemini\")", cfg.Provider)
 	}
 	if cfg.Model == "" {
 		cfg.Model = d.model

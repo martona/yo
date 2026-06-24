@@ -26,6 +26,8 @@ func New(cfg config.Config) (Provider, error) {
 		return newOpenAI(cfg), nil
 	case "grok":
 		return newGrok(cfg), nil
+	case "gemini":
+		return newGemini(cfg), nil
 	default:
 		return nil, fmt.Errorf("provider %q not supported", cfg.Provider)
 	}

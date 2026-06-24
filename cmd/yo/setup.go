@@ -147,7 +147,7 @@ func (s *setupRunner) runPowerShellShellSetup(exe string, uninstall bool) error 
 
 func (s *setupRunner) configureKey() error {
 	s.step("Checking for an API key")
-	if os.Getenv("ANTHROPIC_API_KEY") != "" || os.Getenv("OPENAI_API_KEY") != "" || os.Getenv("XAI_API_KEY") != "" {
+	if os.Getenv("ANTHROPIC_API_KEY") != "" || os.Getenv("OPENAI_API_KEY") != "" || os.Getenv("XAI_API_KEY") != "" || os.Getenv("GEMINI_API_KEY") != "" {
 		s.good("an API key is set in your environment")
 		return nil
 	}
@@ -158,7 +158,7 @@ func (s *setupRunner) configureKey() error {
 		s.warn("could not read ~/.yoconf yet: " + err.Error())
 	}
 
-	s.warn("no ANTHROPIC_API_KEY, OPENAI_API_KEY, or XAI_API_KEY found")
+	s.warn("no ANTHROPIC_API_KEY, OPENAI_API_KEY, XAI_API_KEY, or GEMINI_API_KEY found")
 	yoconf, err := yoconfPathFromEnv(os.Getenv)
 	if err != nil {
 		return err
@@ -167,7 +167,7 @@ func (s *setupRunner) configureKey() error {
 	s.info("    " + yoconf)
 	s.info("The standard environment variables still work too; ~/.yoconf is the portable setup path.")
 	if !s.confirm("Write provider and key to ~/.yoconf?") {
-		s.warn("skipped -- set ANTHROPIC_API_KEY, OPENAI_API_KEY, or XAI_API_KEY when ready")
+		s.warn("skipped -- set ANTHROPIC_API_KEY, OPENAI_API_KEY, XAI_API_KEY, or GEMINI_API_KEY when ready")
 		return nil
 	}
 
@@ -175,9 +175,10 @@ func (s *setupRunner) configureKey() error {
 	s.info("    1) Anthropic (Claude)")
 	s.info("    2) OpenAI (GPT)")
 	s.info("    3) Grok (xAI)")
-	provider := parseProviderChoice(s.prompt("Choose [1/2/3] (Enter to skip)"))
+	s.info("    4) Gemini (Google)")
+	provider := parseProviderChoice(s.prompt("Choose [1/2/3/4] (Enter to skip)"))
 	if provider == "" {
-		s.warn("skipped -- set ANTHROPIC_API_KEY, OPENAI_API_KEY, or XAI_API_KEY when ready")
+		s.warn("skipped -- set ANTHROPIC_API_KEY, OPENAI_API_KEY, XAI_API_KEY, or GEMINI_API_KEY when ready")
 		return nil
 	}
 
@@ -297,6 +298,8 @@ func parseProviderChoice(choice string) string {
 		return "openai"
 	case "3", "grok", "xai":
 		return "grok"
+	case "4", "gemini", "google":
+		return "gemini"
 	default:
 		return ""
 	}
@@ -305,8 +308,8 @@ func parseProviderChoice(choice string) string {
 func upsertYoconfProviderKey(path, provider, key string) error {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	key = strings.TrimSpace(key)
-	if provider != "anthropic" && provider != "openai" && provider != "grok" {
-		return fmt.Errorf("provider %q not supported (use \"anthropic\", \"openai\", or \"grok\")", provider)
+	if provider != "anthropic" && provider != "openai" && provider != "grok" && provider != "gemini" {
+		return fmt.Errorf("provider %q not supported (use \"anthropic\", \"openai\", \"grok\", or \"gemini\")", provider)
 	}
 	if key == "" {
 		return fmt.Errorf("API key cannot be empty")

@@ -30,6 +30,9 @@ func TestParseProviderChoice(t *testing.T) {
 		"3":         "grok",
 		"Grok":      "grok",
 		"xai":       "grok",
+		"4":         "gemini",
+		"Gemini":    "gemini",
+		"google":    "gemini",
 		"":          "",
 		"bogus":     "",
 	}
