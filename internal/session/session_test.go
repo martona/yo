@@ -16,6 +16,31 @@ func isolate(t *testing.T) {
 	t.Setenv("TEMP", d)
 }
 
+func TestClear(t *testing.T) {
+	// Set TMPDIR too (os.TempDir reads it on macOS/Linux) so Clear operates on the
+	// throwaway dir, never the real session store.
+	d := t.TempDir()
+	t.Setenv("TMP", d)
+	t.Setenv("TEMP", d)
+	t.Setenv("TMPDIR", d)
+
+	const id = "sess-clear-1"
+	Append(id, Exchange{Query: "x", Type: "chat", Response: "y"})
+	if len(Recent(id)) == 0 {
+		t.Fatalf("expected a stored exchange before Clear")
+	}
+	if err := Clear(); err != nil {
+		t.Fatalf("Clear: %v", err)
+	}
+	if got := Recent(id); len(got) != 0 {
+		t.Fatalf("expected no exchanges after Clear, got %d", len(got))
+	}
+	// Clear with no store present is a no-op.
+	if err := Clear(); err != nil {
+		t.Fatalf("Clear on an empty store should be nil, got %v", err)
+	}
+}
+
 func TestAppendAndRecent(t *testing.T) {
 	isolate(t)
 	const id = "sess-test-1"

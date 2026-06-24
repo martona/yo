@@ -14,6 +14,8 @@ import (
 	"golang.org/x/term"
 
 	"github.com/martona/yo/internal/config"
+	"github.com/martona/yo/internal/session"
+	tokens "github.com/martona/yo/internal/usage"
 	"github.com/martona/yo/shell"
 )
 
@@ -42,7 +44,11 @@ func newSetupRunner(in io.Reader, out, err io.Writer) *setupRunner {
 func (s *setupRunner) run(uninstall bool) error {
 	target := setupTargetShell()
 	if uninstall {
-		return s.uninstallShell(target)
+		if err := s.uninstallShell(target); err != nil {
+			return err
+		}
+		s.removeStateFiles()
+		return nil
 	}
 
 	exe, err := os.Executable()
@@ -87,6 +93,36 @@ func (s *setupRunner) uninstallShell(target string) error {
 			return fmt.Errorf("cannot locate the yo binary: %w", err)
 		}
 		return s.runPowerShellShellSetup(exe, true)
+	}
+}
+
+// removeStateFiles is the shared, cross-shell tail of uninstall: it offers to
+// delete the state yo created on its own -- the token tally and the session-memory
+// cache -- and always leaves ~/.yoconf (your provider + key) untouched, saying so.
+// Declining leaves everything in place; uninstall never fails on this step.
+func (s *setupRunner) removeStateFiles() {
+	s.step("Removing yo's saved state")
+	s.info("token usage:   " + tokens.Path())
+	s.info("session cache: " + session.Path())
+	if s.confirm("Delete these?") {
+		if err := tokens.Remove(); err != nil {
+			s.warn("could not remove the token usage file: " + err.Error())
+		}
+		if err := session.Clear(); err != nil {
+			s.warn("could not remove the session cache: " + err.Error())
+		}
+		s.good("removed yo's saved state")
+	} else {
+		s.warn("left yo's saved state in place")
+	}
+
+	// ~/.yoconf is yours (you authored it; it holds your key) -- never auto-delete
+	// it, but say plainly that we left it so it isn't a surprise.
+	if yoconf, err := yoconfPathFromEnv(os.Getenv); err == nil {
+		if _, statErr := os.Stat(yoconf); statErr == nil {
+			s.info("left " + yoconf + " untouched (your provider and API key live there);")
+			s.info("delete it yourself if you want it gone.")
+		}
 	}
 }
 

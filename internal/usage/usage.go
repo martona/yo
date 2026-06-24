@@ -118,22 +118,43 @@ func prune(s *store, now time.Time) {
 	}
 }
 
-func storePath() (string, error) {
-	var base string
-	switch {
-	case os.Getenv("YO_USAGE_DIR") != "":
-		base = os.Getenv("YO_USAGE_DIR")
-	default:
-		if d, err := os.UserConfigDir(); err == nil {
-			base = filepath.Join(d, "yo")
-		} else {
-			base = filepath.Join(os.TempDir(), "yo") // last resort if there's no config dir
-		}
+// baseDir resolves the store directory (without creating it): $YO_USAGE_DIR if set,
+// else the OS user-config dir, else the temp dir as a last resort.
+func baseDir() string {
+	if d := os.Getenv("YO_USAGE_DIR"); d != "" {
+		return d
 	}
+	if d, err := os.UserConfigDir(); err == nil {
+		return filepath.Join(d, "yo")
+	}
+	return filepath.Join(os.TempDir(), "yo")
+}
+
+func storePath() (string, error) {
+	base := baseDir()
 	if err := os.MkdirAll(base, 0o700); err != nil {
 		return "", err
 	}
 	return filepath.Join(base, "usage.json"), nil
+}
+
+// Path returns the resolved usage-file location without creating anything, so
+// `yo --uninstall` can report and remove it.
+func Path() string {
+	return filepath.Join(baseDir(), "usage.json")
+}
+
+// Remove deletes the usage file, and the enclosing "yo" directory if that leaves
+// it empty. No-op (returns nil) when the file is already gone. For `yo --uninstall`.
+func Remove() error {
+	p := Path()
+	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if d := filepath.Dir(p); filepath.Base(d) == "yo" {
+		_ = os.Remove(d) // best-effort: only succeeds if it's now empty
+	}
+	return nil
 }
 
 func load(path string) store {

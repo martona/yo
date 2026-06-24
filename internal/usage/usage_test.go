@@ -2,6 +2,7 @@
 package usage
 
 import (
+	"os"
 	"testing"
 	"time"
 )
@@ -72,6 +73,29 @@ func TestEmptySessionIDStillCountsGlobal(t *testing.T) {
 	}
 	if sess.In != 0 || sess.Out != 0 {
 		t.Fatalf("session for empty id = %+v, want zero", sess)
+	}
+}
+
+func TestRemove(t *testing.T) {
+	t.Setenv("YO_USAGE_DIR", t.TempDir())
+
+	Add("sess-1", 100, 10)
+	if _, err := os.Stat(Path()); err != nil {
+		t.Fatalf("usage file should exist after Add: %v", err)
+	}
+	if err := Remove(); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if _, err := os.Stat(Path()); !os.IsNotExist(err) {
+		t.Fatalf("usage file should be gone after Remove, stat err = %v", err)
+	}
+	// Remove on a missing file is a no-op.
+	if err := Remove(); err != nil {
+		t.Fatalf("Remove on a missing file should be nil, got %v", err)
+	}
+	_, global, _ := Report("sess-1")
+	if global.In != 0 || global.Out != 0 {
+		t.Fatalf("after Remove, global = %+v, want zero", global)
 	}
 }
 

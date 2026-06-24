@@ -2,10 +2,14 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/martona/yo/internal/session"
+	tokens "github.com/martona/yo/internal/usage"
 )
 
 func TestShellIsZsh(t *testing.T) {
@@ -40,6 +44,61 @@ func TestParseProviderChoice(t *testing.T) {
 		if got := parseProviderChoice(in); got != want {
 			t.Fatalf("parseProviderChoice(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestRemoveStateFilesDeletesStateKeepsYoconf(t *testing.T) {
+	// Isolate every location removeStateFiles touches.
+	t.Setenv("YO_USAGE_DIR", t.TempDir())
+	tmp := t.TempDir()
+	t.Setenv("TMP", tmp)
+	t.Setenv("TEMP", tmp)
+	t.Setenv("TMPDIR", tmp)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Seed yo's own state plus a ~/.yoconf that must survive.
+	tokens.Add("sess-x", 10, 2)
+	session.Append("sess-x", session.Exchange{Query: "q", Type: "chat", Response: "a"})
+	yoconf := filepath.Join(home, ".yoconf")
+	if err := os.WriteFile(yoconf, []byte("provider openai\nkey sk-keep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	s := newSetupRunner(strings.NewReader("y\n"), &out, &out)
+	s.removeStateFiles()
+
+	if _, err := os.Stat(tokens.Path()); !os.IsNotExist(err) {
+		t.Fatalf("token usage file should be gone, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(session.Path(), "sess-sess-x.json")); !os.IsNotExist(err) {
+		t.Fatalf("session cache file should be gone, stat err = %v", err)
+	}
+	if _, err := os.Stat(yoconf); err != nil {
+		t.Fatalf("~/.yoconf must be left in place, got %v", err)
+	}
+	if !strings.Contains(out.String(), yoconf) {
+		t.Fatalf("output should mention the left-behind ~/.yoconf:\n%s", out.String())
+	}
+}
+
+func TestRemoveStateFilesDeclineKeepsEverything(t *testing.T) {
+	t.Setenv("YO_USAGE_DIR", t.TempDir())
+	tmp := t.TempDir()
+	t.Setenv("TMP", tmp)
+	t.Setenv("TEMP", tmp)
+	t.Setenv("TMPDIR", tmp)
+	t.Setenv("HOME", t.TempDir())
+
+	tokens.Add("sess-y", 5, 1)
+
+	var out bytes.Buffer
+	s := newSetupRunner(strings.NewReader("n\n"), &out, &out)
+	s.removeStateFiles()
+
+	if _, err := os.Stat(tokens.Path()); err != nil {
+		t.Fatalf("declining should leave the token usage file in place, got %v", err)
 	}
 }
 
