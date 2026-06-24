@@ -35,19 +35,32 @@ The action uses `wingetcreate update`, which preserves the portable/zip structur
 the seed and only swaps version + URLs + hashes — so the seed in step 1 defines the
 shape once.
 
+**Uninstall.** A portable/zip package has no uninstall hook: `winget uninstall
+martona.yo` removes the `yo` command alias but leaves yo's token-usage file at
+`%AppData%\yo\usage.json`. Running a cleanup command on uninstall would require
+repackaging as a full installer (Inno/NSIS/MSI) -- deliberately avoided (single
+portable binary; MSIX was skipped for the same reason). To clear yo's state, run
+`yo --uninstall` before `winget uninstall`. The leftover is a few hundred bytes of
+integer counters -- harmless if left.
+
 ---
 
 ## macOS / Homebrew
 
-There is no Homebrew formula yet. The release workflow publishes stable,
-version-less asset names:
+`yo` ships as a Homebrew **formula** in the separate tap repo
+[`martona/homebrew-tap`](https://github.com/martona/homebrew-tap) (`Formula/yo.rb`) --
+`brew install martona/tap/yo`. The formula installs the signed + notarized macOS
+release binary (`yo-macos-{arm64,amd64}.zip`) and prints `yo --setup` as the
+post-install step. On a new release, bump `version`, the two per-arch URLs, and
+their `sha256` (from the release's `SHA256SUMS.txt`) in that repo.
 
-- `yo-macos-arm64.zip`
-- `yo-macos-amd64.zip`
-
-A future tap formula should use the per-arch release zip URLs plus hashes from
-`SHA256SUMS.txt`, install the contained `yo` binary, and print `yo --setup` as the
-post-install next step.
+**Uninstall.** Like winget's portable package, a Homebrew *formula* has no
+uninstall hook -- `brew uninstall yo` removes the binary but leaves yo's
+token-usage file at `~/Library/Application Support/yo/`. (A *cask* could clear it
+via a `zap` stanza, but this tap is formula-shaped and converting just for that
+isn't worth it.) To clear yo's state, run `yo --uninstall` before
+`brew uninstall yo`; the leftover is a few hundred bytes of integer counters --
+harmless if left.
 
 The zip archives are submitted to Apple's notary service after the binary inside
 is Developer ID-signed with hardened runtime. Command-line zip archives are not
