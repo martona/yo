@@ -62,9 +62,6 @@ func TestSnippetForShellZsh(t *testing.T) {
 	if got != shell.Zsh {
 		t.Fatal("snippetForShell(zsh) did not return the embedded zsh snippet")
 	}
-	if got, ok := snippetForShell("bash"); ok || got != "" {
-		t.Fatalf("snippetForShell(bash) = %q, %v; want unsupported", got, ok)
-	}
 }
 
 func TestZshSnippetParses(t *testing.T) {

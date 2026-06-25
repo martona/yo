@@ -14,5 +14,8 @@ var PowerShell string
 //go:embed yo.zsh
 var Zsh string
 
+//go:embed yo.bash
+var Bash string
+
 //go:embed setup.ps1
 var SetupPowerShell string

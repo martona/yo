@@ -14,6 +14,7 @@ func isolate(t *testing.T) {
 	d := t.TempDir()
 	t.Setenv("TMP", d)
 	t.Setenv("TEMP", d)
+	t.Setenv("TMPDIR", d)
 }
 
 func TestClear(t *testing.T) {

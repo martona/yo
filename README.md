@@ -17,8 +17,9 @@ binary plus a small shell-integration snippet. See
 
 ## Status
 
-- **Works today:** Windows PowerShell **7+** (recommended) and **5.1**, plus
-  macOS **zsh**. Providers: **Anthropic** (default), **OpenAI**, **Grok** (xAI), and **Gemini** (Google).
+- **Works today:** Windows PowerShell **7+** (recommended) and **5.1**, macOS
+  **zsh**, and **bash 4.2+**. Providers: **Anthropic** (default), **OpenAI**,
+  **Grok** (xAI), and **Gemini** (Google).
 - **Release builds:** Windows zips are Authenticode-signed. macOS zips are
   Developer ID-signed and notarized by Apple. All artifacts are GitHub-attested.
 
@@ -30,7 +31,7 @@ You need the `yo` binary on your machine, the integration line in your shell
 profile, and an API key. Use the platform guide for install/build details:
 
 - [Windows PowerShell](docs/WINDOWS.md)
-- [macOS zsh](docs/MACOS.md)
+- [macOS zsh / Homebrew bash](docs/MACOS.md)
 
 Release assets:
 
@@ -111,8 +112,9 @@ multiplexer gives yo deeper resolved screen history when one is available. On ma
 
 ### Questions with shell metacharacters
 
-Because `yo` hooks the Enter key (via PSReadLine on PowerShell and ZLE on zsh),
-you can ask questions containing `( ) < > & ; | $` without quoting them yourself:
+Because `yo` hooks the Enter key (via PSReadLine on PowerShell, ZLE on zsh, and
+Readline on bash), you can ask questions containing `( ) < > & ; | $` without
+quoting them yourself:
 
 ```sh
 yo what does (ps -ef | grep ssh) actually return?
@@ -168,8 +170,8 @@ yo[debug] <- command pending=true  "Get-CimInstance Win32_DiskDrive ..."
 
 ## How it works
 
-`yo` is a native Go binary; the per-shell snippet (emitted by `yo --init powershell` or
-`yo --init zsh`) is the only shell-specific part. The binary assembles the
+`yo` is a native Go binary; the per-shell snippet (emitted by `yo --init powershell`,
+`yo --init zsh`, or `yo --init bash`) is the only shell-specific part. The binary assembles the
 request (your text + optional screen context + session memory), calls the
 provider with **forced tool use** so the model must return a typed `command` or
 `chat` — never prose to descrape — and prints a shell-readable result. The
@@ -186,6 +188,7 @@ snippet prefills the command or prints the answer. Multi-step continuation rides
 | `yo --uninstall`       | Remove the integration from your shell profile. |
 | `yo --init powershell` | Print the integration snippet (for your `$PROFILE`). |
 | `yo --init zsh`        | Print the integration snippet (for your `~/.zshrc`). |
+| `yo --init bash`       | Print the integration snippet (for your `~/.bashrc`). |
 | `yo --check`           | Validate config + key (no network). |
 | `yo --config`          | Show the resolved configuration. |
 | `yo --dry-run "<q>"`   | Print the assembled API request (no key/network). |

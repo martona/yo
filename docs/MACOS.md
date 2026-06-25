@@ -1,6 +1,8 @@
-# macOS zsh
+# macOS zsh / Homebrew bash
 
-`yo` supports macOS with the `zsh` shell only for now.
+`yo` supports macOS with `zsh` and with a modern Homebrew-installed `bash`.
+Apple's system `/bin/bash` is 3.2 and is not supported; bash integration needs
+bash 4.2+ with Readline.
 
 ## Install With Homebrew
 
@@ -9,8 +11,10 @@ brew install martona/tap/yo
 yo --setup
 ```
 
-`yo --setup` adds the shell integration to `${ZDOTDIR:-$HOME}/.zshrc` and can
-configure an API key. Open a fresh terminal, then run:
+`yo --setup` offers to add the shell integration to both supported POSIX shell profiles
+(`${ZDOTDIR:-$HOME}/.zshrc` for zsh, `$HOME/.bashrc` for bash), regardless of
+which shell launched setup, and can configure an API key. Open a fresh terminal,
+then run:
 
 ```sh
 yo --check
@@ -33,11 +37,12 @@ mkdir -p "$HOME/.local/bin"
 mkdir -p "$tmp/pkg"
 ditto -x -k "$tmp/yo.zip" "$tmp/pkg"
 install -m 0755 "$tmp/pkg/yo" "$HOME/.local/bin/yo"
-"$HOME/.local/bin/yo" --setup
+export PATH="$HOME/.local/bin:$PATH"
+yo --setup
 rm -rf "$tmp"
 ```
 
-## Manual Shell Setup
+## Manual zsh Setup
 
 Add this to `~/.zshrc`:
 
@@ -53,6 +58,29 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
 Open a fresh shell and run `yo --check`.
+
+## Manual bash Setup
+
+Install a modern bash if needed:
+
+```sh
+brew install bash
+```
+
+Add this to `~/.bashrc`:
+
+```bash
+if command -v yo >/dev/null 2>&1; then eval "$(yo --init bash)"; fi
+```
+
+If your bash starts as a login shell and does not read `~/.bashrc`, source it
+from `~/.bash_profile`:
+
+```bash
+[[ -r ~/.bashrc ]] && source ~/.bashrc
+```
+
+Open a fresh Homebrew bash shell and run `yo --check`.
 
 ## Build From Source
 
@@ -70,6 +98,8 @@ go test ./...
 go vet ./...
 zsh -n shell/yo.zsh
 go run ./cmd/yo --init zsh | zsh -n
+bash -n shell/yo.bash
+go run ./cmd/yo --init bash | bash -n
 ```
 
 ## Verify A Release Binary

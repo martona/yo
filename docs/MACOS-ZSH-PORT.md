@@ -393,8 +393,9 @@ What landed:
   wiring/removal.
 - zsh setup detects `${ZDOTDIR:-$HOME}/.zshrc`.
 - Profile edits are confirm-before-change and idempotent.
-- The managed zsh init block uses `yo --init zsh` when `yo` is on `PATH`; if not,
-  it pins the current binary via `YO_BIN` so setup still works from a full path.
+- The managed zsh init block uses `yo --init zsh` when `yo` is on `PATH`; setup
+  now expects package-manager installs or manual PATH setup rather than pinning a
+  full binary path into the profile.
 - Shared setup can write `provider` and `key` to `~/.yoconf` with mode `0600`.
   Standard `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` environment variables remain
   supported and preferred for manual setup.
