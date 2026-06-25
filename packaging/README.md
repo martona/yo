@@ -51,8 +51,15 @@ integer counters -- harmless if left.
 [`martona/homebrew-tap`](https://github.com/martona/homebrew-tap) (`Formula/yo.rb`) --
 `brew install martona/tap/yo`. The formula installs the signed + notarized macOS
 release binary (`yo-macos-{arm64,amd64}.zip`) and prints `yo --setup` as the
-post-install step. On a new release, bump `version`, the two per-arch URLs, and
-their `sha256` (from the release's `SHA256SUMS.txt`) in that repo.
+post-install step.
+
+**Ongoing (auto-bump).** [`.github/workflows/homebrew-tap.yml`](../.github/workflows/homebrew-tap.yml)
+dispatches the tap's reusable bump workflow when a release is published. To
+enable it, add a fine-grained GitHub token as the `HOMEBREW_TAP_TOKEN` secret in
+this repo. Scope the token to `martona/homebrew-tap` with **Contents: Read and
+write**. Until that secret exists the workflow no-ops cleanly (it won't fail your
+releases). The tap-side workflow reads the release's `SHA256SUMS.txt`, updates
+`Formula/yo.rb`, audits it, and commits the bump to the tap.
 
 **Uninstall.** Like winget's portable package, a Homebrew *formula* has no
 uninstall hook -- `brew uninstall yo` removes the binary but leaves yo's
