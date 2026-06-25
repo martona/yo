@@ -75,6 +75,42 @@ func TestBashSnippetParses(t *testing.T) {
 	}
 }
 
+func TestBashSnippetUnsupportedBashQuietlyNoops(t *testing.T) {
+	dir := t.TempDir()
+	snippet := filepath.Join(dir, "yo-old-bash.bash")
+	body := strings.Replace(shell.Bash, "BASH_VERSINFO[0] < 4", "1", 1)
+	if err := os.WriteFile(snippet, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := runBash(t, `
+source `+shellQuote(snippet)+`
+if declare -F _yo_readline_enter >/dev/null; then echo installed; fi
+echo after
+`)
+
+	if out != "after\n" {
+		t.Fatalf("unsupported bash should quietly no-op, got:\n%s", out)
+	}
+}
+
+func TestBashSnippetNonBashQuietlyNoops(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not found on PATH")
+	}
+	dir := t.TempDir()
+	snippet := writeBashSnippet(t, dir)
+	cmd := exec.Command("sh", "-c", ". "+shellQuote(snippet)+"; echo after")
+	cmd.Env = append(os.Environ(), "NO_COLOR=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("non-bash source failed: %v\n%s", err, out)
+	}
+	if got := strings.ReplaceAll(string(out), "\r", ""); got != "after\n" {
+		t.Fatalf("non-bash should quietly no-op, got:\n%s", got)
+	}
+}
+
 func TestBashSnippetReadlineQueryAndContinuation(t *testing.T) {
 	dir := t.TempDir()
 	snippet := writeBashSnippet(t, dir)

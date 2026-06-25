@@ -12,13 +12,11 @@
 # a modern bash (for example via Homebrew) and source this from that shell.
 
 if [[ -z ${BASH_VERSION-} ]]; then
-    printf '%s\n' "yo: bash integration can only be sourced by bash." >&2
-    return 1 2>/dev/null || exit 1
+    return 0 2>/dev/null || exit 0
 fi
 
 if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 2) )); then
-    printf '%s\n' "yo: bash integration requires bash 4.2+; this shell is bash $BASH_VERSION." >&2
-    return 1 2>/dev/null || exit 1
+    return 0 2>/dev/null || exit 0
 fi
 
 # Session id for cross-call memory: a stable per-shell id (PID + random suffix so a
