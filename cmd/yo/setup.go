@@ -80,8 +80,23 @@ func (s *setupRunner) installShells(exe string) error {
 			return err
 		}
 	}
-	s.checkPosixBinaryOnPath(exe)
+	localBin, needsPath, ok, err := s.ensurePosixBinaryOnPath(exe)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
 	for _, profile := range posixShellProfiles() {
+		if needsPath {
+			ok, err := s.ensureLocalBinOnProfilePath(profile, localBin)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				continue
+			}
+		}
 		if err := s.wirePosixProfile(profile, exe); err != nil {
 			return err
 		}
