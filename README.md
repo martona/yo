@@ -1,4 +1,4 @@
-# yo — a natural-language command assistant for your shell
+# yo: a natural-language command assistant for your shell
 
 ![yo in action](docs/yodemo.gif)
 
@@ -20,8 +20,7 @@ binary plus a small shell-integration snippet. See
 - **Works today:** Windows PowerShell **7+** (recommended) and **5.1**, plus
   macOS **zsh**. Providers: **Anthropic** (default), **OpenAI**, **Grok** (xAI), and **Gemini** (Google).
 - **Release builds:** Windows zips are Authenticode-signed. macOS zips are
-  Developer ID-signed and notarized by Apple.
-- **Planned:** Linux builds and bash integration; `winget` package submission; brew tap for macOS.
+  Developer ID-signed and notarized by Apple. All artifacts are GitHub-attested.
 
 ---
 
@@ -50,10 +49,7 @@ Every release zip is attested by GitHub's build-provenance flow:
 
 ```sh
 gh attestation verify yo-macos-arm64.zip --repo martona/yo
-# or: gh attestation verify yo-windows-amd64.zip --repo martona/yo
 ```
-
-You can also compare each asset with `SHA256SUMS.txt`.
 
 Release workflow details and signing inputs are in
 [docs/RELEASING.md](docs/RELEASING.md).
@@ -172,7 +168,7 @@ yo[debug] <- command pending=true  "Get-CimInstance Win32_DiskDrive ..."
 
 ## How it works
 
-`yo` is a native Go binary; the per-shell snippet (`yo --init powershell` or
+`yo` is a native Go binary; the per-shell snippet (emitted by `yo --init powershell` or
 `yo --init zsh`) is the only shell-specific part. The binary assembles the
 request (your text + optional screen context + session memory), calls the
 provider with **forced tool use** so the model must return a typed `command` or
