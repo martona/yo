@@ -11,9 +11,10 @@ brew install martona/tap/yo
 yo --setup
 ```
 
-`yo --setup` adds the shell integration to the current shell's profile
-(`${ZDOTDIR:-$HOME}/.zshrc` for zsh, `$HOME/.bashrc` for bash) and can configure
-an API key. Open a fresh terminal, then run:
+`yo --setup` offers to add the shell integration to both supported POSIX shell profiles
+(`${ZDOTDIR:-$HOME}/.zshrc` for zsh, `$HOME/.bashrc` for bash), regardless of
+which shell launched setup, and can configure an API key. Open a fresh terminal,
+then run:
 
 ```sh
 yo --check
@@ -36,7 +37,8 @@ mkdir -p "$HOME/.local/bin"
 mkdir -p "$tmp/pkg"
 ditto -x -k "$tmp/yo.zip" "$tmp/pkg"
 install -m 0755 "$tmp/pkg/yo" "$HOME/.local/bin/yo"
-"$HOME/.local/bin/yo" --setup
+export PATH="$HOME/.local/bin:$PATH"
+yo --setup
 rm -rf "$tmp"
 ```
 

@@ -20,17 +20,20 @@ func TestBashProfilePathFallsBackToHome(t *testing.T) {
 	}
 }
 
-func TestBashManagedBlockPinsBinaryFallback(t *testing.T) {
+func TestBashManagedBlockUsesPathLookup(t *testing.T) {
 	block := bashManagedBlock("/tmp/yo bin/yo")
 	for _, want := range []string{
-		bashManagedStart,
+		shellManagedStart,
 		`eval "$(yo --init bash)"`,
-		`export YO_BIN='/tmp/yo bin/yo'`,
-		`eval "$('/tmp/yo bin/yo' --init bash)"`,
-		bashManagedEnd,
+		shellManagedEnd,
 	} {
 		if !strings.Contains(block, want) {
 			t.Fatalf("managed block missing %q:\n%s", want, block)
+		}
+	}
+	for _, unwanted := range []string{"YO_BIN=", "/tmp/yo bin/yo"} {
+		if strings.Contains(block, unwanted) {
+			t.Fatalf("managed block contains fallback %q:\n%s", unwanted, block)
 		}
 	}
 }
@@ -41,7 +44,7 @@ func TestRemoveBashManagedBlock(t *testing.T) {
 	if !removed {
 		t.Fatal("removeBashInit did not report removal")
 	}
-	if strings.Contains(got, bashInitMarker) || strings.Contains(got, bashManagedStart) {
+	if strings.Contains(got, shellInitMarker("bash")) || strings.Contains(got, shellManagedStart) {
 		t.Fatalf("managed block still present:\n%s", got)
 	}
 	for _, want := range []string{"before", "after"} {
@@ -71,10 +74,13 @@ func TestSetupRunnerBashWritesProfileThenUninstalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{bashManagedStart, bashInitMarker, "YO_BIN=", bashManagedEnd} {
+	for _, want := range []string{shellManagedStart, shellInitMarker("bash"), shellManagedEnd} {
 		if !strings.Contains(string(bashrcData), want) {
 			t.Fatalf(".bashrc missing %q:\n%s", want, bashrcData)
 		}
+	}
+	if strings.Contains(string(bashrcData), "YO_BIN=") {
+		t.Fatalf(".bashrc contains YO_BIN fallback:\n%s", bashrcData)
 	}
 
 	out.Reset()
@@ -86,7 +92,7 @@ func TestSetupRunnerBashWritesProfileThenUninstalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(bashrcData), bashInitMarker) || strings.Contains(string(bashrcData), bashManagedStart) {
+	if strings.Contains(string(bashrcData), shellInitMarker("bash")) || strings.Contains(string(bashrcData), shellManagedStart) {
 		t.Fatalf("uninstall left bash init marker:\n%s", bashrcData)
 	}
 }

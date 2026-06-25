@@ -38,6 +38,69 @@ func TestShellIsBash(t *testing.T) {
 	}
 }
 
+func TestSetupRunnerInstallsAndUninstallsAllPosixProfiles(t *testing.T) {
+	oldHost := powerShellSetupHost
+	powerShellSetupHost = func() string { return "" }
+	defer func() { powerShellSetupHost = oldHost }()
+
+	home := filepath.Join(t.TempDir(), "home")
+	zdot := filepath.Join(t.TempDir(), "zdot")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(zdot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("ZDOTDIR", zdot)
+	t.Setenv("SHELL", "/bin/fish")
+	t.Setenv("YO_SHELL", "")
+
+	var out bytes.Buffer
+	runner := newSetupRunner(strings.NewReader("Y\nY\n"), &out, &out)
+	if err := runner.installShells("/opt/yo/bin/yo"); err != nil {
+		t.Fatal(err)
+	}
+
+	bashrc := filepath.Join(home, ".bashrc")
+	zshrc := filepath.Join(zdot, ".zshrc")
+	for _, tc := range []struct {
+		path  string
+		shell string
+	}{
+		{bashrc, "bash"},
+		{zshrc, "zsh"},
+	} {
+		data, err := os.ReadFile(tc.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{shellManagedStart, shellInitMarker(tc.shell), shellManagedEnd} {
+			if !strings.Contains(string(data), want) {
+				t.Fatalf("%s missing %q:\n%s", tc.path, want, data)
+			}
+		}
+		if strings.Contains(string(data), "YO_BIN=") {
+			t.Fatalf("%s contains YO_BIN fallback:\n%s", tc.path, data)
+		}
+	}
+
+	out.Reset()
+	runner = newSetupRunner(strings.NewReader("Y\nY\n"), &out, &out)
+	if err := runner.uninstallShells(); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{bashrc, zshrc} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), shellManagedStart) || strings.Contains(string(data), "yo --init") {
+			t.Fatalf("uninstall left init block in %s:\n%s", path, data)
+		}
+	}
+}
+
 func TestParseProviderChoice(t *testing.T) {
 	tests := map[string]string{
 		"1":         "anthropic",

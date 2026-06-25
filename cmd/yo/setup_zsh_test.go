@@ -32,17 +32,20 @@ func TestZshProfilePathFallsBackToHome(t *testing.T) {
 	}
 }
 
-func TestZshManagedBlockPinsBinaryFallback(t *testing.T) {
+func TestZshManagedBlockUsesPathLookup(t *testing.T) {
 	block := zshManagedBlock("/tmp/yo bin/yo")
 	for _, want := range []string{
-		zshManagedStart,
+		shellManagedStart,
 		`eval "$(yo --init zsh)"`,
-		`export YO_BIN='/tmp/yo bin/yo'`,
-		`eval "$('/tmp/yo bin/yo' --init zsh)"`,
-		zshManagedEnd,
+		shellManagedEnd,
 	} {
 		if !strings.Contains(block, want) {
 			t.Fatalf("managed block missing %q:\n%s", want, block)
+		}
+	}
+	for _, unwanted := range []string{"YO_BIN=", "/tmp/yo bin/yo"} {
+		if strings.Contains(block, unwanted) {
+			t.Fatalf("managed block contains fallback %q:\n%s", unwanted, block)
 		}
 	}
 }
@@ -53,7 +56,7 @@ func TestRemoveZshManagedBlock(t *testing.T) {
 	if !removed {
 		t.Fatal("removeZshInit did not report removal")
 	}
-	if strings.Contains(got, zshInitMarker) || strings.Contains(got, zshManagedStart) {
+	if strings.Contains(got, shellInitMarker("zsh")) || strings.Contains(got, shellManagedStart) {
 		t.Fatalf("managed block still present:\n%s", got)
 	}
 	for _, want := range []string{"before", "after"} {
@@ -64,7 +67,7 @@ func TestRemoveZshManagedBlock(t *testing.T) {
 }
 
 func TestRemoveZshManagedLine(t *testing.T) {
-	content := "before\n" + zshLegacyComment + "\n" + zshInitLine + "\nafter\n"
+	content := "before\n" + shellLegacyComment + "\n" + shellInitLine("zsh") + "\nafter\n"
 	got, removed := removeZshInit(content)
 	if !removed {
 		t.Fatal("removeZshInit did not report removal")
@@ -106,10 +109,13 @@ func TestSetupRunnerZshWritesProfileAndYoconfThenUninstalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{zshManagedStart, zshInitMarker, "YO_BIN=", zshManagedEnd} {
+	for _, want := range []string{shellManagedStart, shellInitMarker("zsh"), shellManagedEnd} {
 		if !strings.Contains(string(zshrcData), want) {
 			t.Fatalf(".zshrc missing %q:\n%s", want, zshrcData)
 		}
+	}
+	if strings.Contains(string(zshrcData), "YO_BIN=") {
+		t.Fatalf(".zshrc contains YO_BIN fallback:\n%s", zshrcData)
 	}
 
 	yoconf := filepath.Join(home, ".yoconf")
@@ -133,7 +139,7 @@ func TestSetupRunnerZshWritesProfileAndYoconfThenUninstalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(zshrcData), zshInitMarker) || strings.Contains(string(zshrcData), zshManagedStart) {
+	if strings.Contains(string(zshrcData), shellInitMarker("zsh")) || strings.Contains(string(zshrcData), shellManagedStart) {
 		t.Fatalf("uninstall left zsh init marker:\n%s", zshrcData)
 	}
 	if got, err := os.ReadFile(yoconf); err != nil || string(got) != string(yoconfData) {

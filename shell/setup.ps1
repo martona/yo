@@ -9,6 +9,10 @@ $bin       = $env:YO_SETUP_BIN
 $uninstall = $env:YO_SETUP_UNINSTALL -eq '1'
 $initLine  = 'if (Get-Command yo -ErrorAction SilentlyContinue) { yo --init powershell | Out-String | iex }'
 $marker    = 'yo --init powershell'
+$managedStart = '# >>> yo initialize >>>'
+$managedEnd = '# <<< yo initialize <<<'
+$managedComment = '# Added by `yo --setup`; remove with `yo --uninstall`.'
+$legacyComment = '# yo - LLM command assistant'
 
 function Step($m) { Write-Host ""; Write-Host "==> $m" -ForegroundColor Cyan }
 function Good($m) { Write-Host "    OK  $m" -ForegroundColor Green }
@@ -22,17 +26,46 @@ function Confirm($prompt) {
     return ($ans -eq '' -or $ans -eq 'y' -or $ans -eq 'yes')
 }
 
+function ManagedBlock() {
+    return ($managedStart, $managedComment, $initLine, $managedEnd) -join [Environment]::NewLine
+}
+
+function RemoveYoInit($content) {
+    $content = $content -replace "`r`n", "`n"
+    $lines = $content -split "`n", -1
+    $out = New-Object System.Collections.Generic.List[string]
+    $inBlock = $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $trimmed = $lines[$i].Trim()
+        if ($inBlock) {
+            if ($trimmed -eq $managedEnd) { $inBlock = $false }
+            continue
+        }
+        if ($trimmed -eq $managedStart) {
+            $inBlock = $true
+            continue
+        }
+        if ($trimmed -eq $legacyComment -and $i + 1 -lt $lines.Count -and $lines[$i + 1].Trim() -eq $initLine) {
+            continue
+        }
+        if ($trimmed -eq $initLine) {
+            continue
+        }
+        $out.Add($lines[$i])
+    }
+    return ($out -join [Environment]::NewLine)
+}
+
 if ($uninstall) {
     Step "Removing yo from your PowerShell profile"
-    if ((Test-Path $PROFILE) -and ((Get-Content $PROFILE -Raw) -match [regex]::Escape($marker))) {
-        Info "I can remove the yo integration line from:"
+    $raw = Get-Content $PROFILE -Raw -ErrorAction SilentlyContinue
+    if ($raw -and ($raw -match [regex]::Escape($marker) -or $raw -match [regex]::Escape($managedStart))) {
+        Info "I can remove the yo integration block from:"
         Info "    $PROFILE"
         if (Confirm "Remove it?") {
-            $kept = Get-Content $PROFILE | Where-Object {
-                $_ -notmatch [regex]::Escape($marker) -and $_ -notmatch '^# yo - LLM command assistant$'
-            }
-            Set-Content -Path $PROFILE -Value $kept
-            Good "removed the integration line from $PROFILE"
+            $kept = RemoveYoInit $raw
+            [System.IO.File]::WriteAllText($PROFILE, $kept)
+            Good "removed the integration block from $PROFILE"
         } else {
             Warn "skipped -- left $PROFILE unchanged"
         }
@@ -137,8 +170,10 @@ if ((Get-Content $PROFILE -Raw -ErrorAction SilentlyContinue) -match [regex]::Es
             if ($pdir -and -not (Test-Path $pdir)) { New-Item -ItemType Directory -Path $pdir -Force | Out-Null }
             New-Item -ItemType File -Path $PROFILE | Out-Null
         }
-        Add-Content -Path $PROFILE -Value "`n# yo - LLM command assistant`n$initLine"
-        Good "added the integration line to $PROFILE"
+        $raw = Get-Content $PROFILE -Raw -ErrorAction SilentlyContinue
+        $sep = if ($raw -and -not $raw.EndsWith("`n")) { "`n`n" } elseif ($raw) { "`n" } else { "" }
+        Add-Content -Path $PROFILE -Value ($sep + (ManagedBlock))
+        Good "added the integration block to $PROFILE"
     } else {
         Warn "skipped -- add 'yo --init powershell | Out-String | iex' to your profile yourself"
     }

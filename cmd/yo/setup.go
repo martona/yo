@@ -26,6 +26,8 @@ type setupRunner struct {
 	err    io.Writer
 }
 
+var powerShellSetupHost = detectPowerShellSetupHost
+
 func runSetup(uninstall bool) {
 	if err := newSetupRunner(os.Stdin, os.Stdout, os.Stderr).run(uninstall); err != nil {
 		fmt.Fprintln(os.Stderr, "yo:", err)
@@ -42,9 +44,8 @@ func newSetupRunner(in io.Reader, out, err io.Writer) *setupRunner {
 }
 
 func (s *setupRunner) run(uninstall bool) error {
-	target := setupTargetShell()
 	if uninstall {
-		if err := s.uninstallShell(target); err != nil {
+		if err := s.uninstallShells(); err != nil {
 			return err
 		}
 		s.removeStateFiles()
@@ -60,30 +61,59 @@ func (s *setupRunner) run(uninstall bool) error {
 	fmt.Fprintln(s.out, "yo setup -- I'll ask before each change. Press Enter to accept, 'n' to skip.")
 	fmt.Fprintln(s.out, "Skipping a step is fine; setup keeps going.")
 
-	if err := s.installShell(target, exe); err != nil {
+	if err := s.installShells(exe); err != nil {
 		return err
 	}
 	if err := s.configureKey(); err != nil {
 		return err
 	}
-	s.validate(target)
+	s.validate(setupTargetShell())
 
 	fmt.Fprintln(s.out)
 	fmt.Fprintln(s.out, "Setup complete. Open a new shell (or run the init line now), then try:  yo list files over 100mb")
 	return nil
 }
 
+func (s *setupRunner) installShells(exe string) error {
+	if shouldOfferPowerShellSetup() {
+		if err := s.runPowerShellShellSetup(exe, false); err != nil {
+			return err
+		}
+	}
+	s.checkPosixBinaryOnPath(exe)
+	for _, profile := range posixShellProfiles() {
+		if err := s.wirePosixProfile(profile, exe); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *setupRunner) installShell(target, exe string) error {
 	switch target {
 	case "bash":
-		s.checkBashBinaryOnPath(exe)
 		return s.wireBashProfile(exe)
 	case "zsh":
-		s.checkZshBinaryOnPath(exe)
 		return s.wireZshProfile(exe)
 	default:
 		return s.runPowerShellShellSetup(exe, false)
 	}
+}
+
+func (s *setupRunner) uninstallShells() error {
+	if shouldOfferPowerShellSetup() {
+		if err := s.runPowerShellShellSetup("", true); err != nil {
+			return err
+		}
+	}
+	for _, profile := range posixShellProfiles() {
+		if err := s.uninstallPosixProfile(profile); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintln(s.out)
+	fmt.Fprintln(s.out, "Done. Your ~/.yoconf and the yo binary are untouched.")
+	return nil
 }
 
 func (s *setupRunner) uninstallShell(target string) error {
@@ -99,6 +129,10 @@ func (s *setupRunner) uninstallShell(target string) error {
 		}
 		return s.runPowerShellShellSetup(exe, true)
 	}
+}
+
+func shouldOfferPowerShellSetup() bool {
+	return runtime.GOOS == "windows" || powerShellSetupHost() != ""
 }
 
 // removeStateFiles is the shared, cross-shell tail of uninstall: it offers to
@@ -161,16 +195,7 @@ func shellIsBash(name string) bool {
 // user PATH, PSReadLine, and $PROFILE wiring/removal. Provider/key setup and
 // validation are shared Go code below.
 func (s *setupRunner) runPowerShellShellSetup(exe string, uninstall bool) error {
-	// Run setup under the shell that invoked yo, so it configures THAT host's
-	// $PROFILE (Windows PowerShell 5.1 or pwsh 7+). Fall back to a PATH lookup.
-	host := parentShell()
-	if host == "" {
-		if p, e := exec.LookPath("pwsh"); e == nil {
-			host = p
-		} else if p, e := exec.LookPath("powershell"); e == nil {
-			host = p
-		}
-	}
+	host := powerShellSetupHost()
 	if host == "" {
 		return fmt.Errorf("setup needs PowerShell (pwsh 7+ or Windows PowerShell 5.1) on PATH")
 	}
@@ -195,6 +220,21 @@ func (s *setupRunner) runPowerShellShellSetup(exe string, uninstall bool) error 
 		return fmt.Errorf("PowerShell setup failed: %w", err)
 	}
 	return nil
+}
+
+func detectPowerShellSetupHost() string {
+	// Run setup under the shell that invoked yo, so it configures THAT host's
+	// $PROFILE (Windows PowerShell 5.1 or pwsh 7+). Fall back to a PATH lookup.
+	if host := parentShell(); host != "" {
+		return host
+	}
+	if p, e := exec.LookPath("pwsh"); e == nil {
+		return p
+	}
+	if p, e := exec.LookPath("powershell"); e == nil {
+		return p
+	}
+	return ""
 }
 
 func (s *setupRunner) configureKey() error {
