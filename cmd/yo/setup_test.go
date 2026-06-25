@@ -13,6 +13,18 @@ import (
 	tokens "github.com/martona/yo/internal/usage"
 )
 
+func withoutPowerShellSetup(t *testing.T) {
+	t.Helper()
+	oldHost := powerShellSetupHost
+	oldOffer := shouldOfferPowerShellSetup
+	powerShellSetupHost = func() string { return "" }
+	shouldOfferPowerShellSetup = func() bool { return false }
+	t.Cleanup(func() {
+		powerShellSetupHost = oldHost
+		shouldOfferPowerShellSetup = oldOffer
+	})
+}
+
 func TestShellIsZsh(t *testing.T) {
 	for _, name := range []string{"zsh", "/bin/zsh", "/opt/homebrew/bin/-zsh"} {
 		if !shellIsZsh(name) {
@@ -40,9 +52,7 @@ func TestShellIsBash(t *testing.T) {
 }
 
 func TestSetupRunnerInstallsAndUninstallsAllPosixProfiles(t *testing.T) {
-	oldHost := powerShellSetupHost
-	powerShellSetupHost = func() string { return "" }
-	defer func() { powerShellSetupHost = oldHost }()
+	withoutPowerShellSetup(t)
 
 	home := filepath.Join(t.TempDir(), "home")
 	zdot := filepath.Join(t.TempDir(), "zdot")
@@ -112,9 +122,7 @@ func TestSetupRunnerInstallsAndUninstallsAllPosixProfiles(t *testing.T) {
 }
 
 func TestSetupRunnerCopiesYoAddsLocalBinPathThenWiresProfiles(t *testing.T) {
-	oldHost := powerShellSetupHost
-	powerShellSetupHost = func() string { return "" }
-	defer func() { powerShellSetupHost = oldHost }()
+	withoutPowerShellSetup(t)
 
 	home := filepath.Join(t.TempDir(), "home")
 	zdot := filepath.Join(t.TempDir(), "zdot")
@@ -187,9 +195,7 @@ func TestSetupRunnerCopiesYoAddsLocalBinPathThenWiresProfiles(t *testing.T) {
 }
 
 func TestSetupRunnerSkipsPosixProfilesWhenCopyDeclined(t *testing.T) {
-	oldHost := powerShellSetupHost
-	powerShellSetupHost = func() string { return "" }
-	defer func() { powerShellSetupHost = oldHost }()
+	withoutPowerShellSetup(t)
 
 	home := filepath.Join(t.TempDir(), "home")
 	zdot := filepath.Join(t.TempDir(), "zdot")

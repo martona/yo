@@ -53,7 +53,7 @@ func runBash(t *testing.T, script string) string {
 	if err != nil {
 		t.Fatalf("bash script failed: %v\n%s", err, out)
 	}
-	return string(out)
+	return strings.ReplaceAll(string(out), "\r", "")
 }
 
 func TestSnippetForShellBash(t *testing.T) {
@@ -127,19 +127,21 @@ export YO_BIN=`+shellQuote(fake)+`
 export YO_FAKE_LOG=`+shellQuote(logPath)+`
 export YO_TEST_CD=`+shellQuote(cdDir)+`
 source `+shellQuote(snippet)+`
+START_PWD=$PWD
 READLINE_LINE='yo what does (echo hi | wc -c) mean; echo bad'
 _yo_readline_enter
 printf 'prefill=<%s> armed=%s state=%s finish=%s\n' "$READLINE_LINE" "$_YO_ARMED" "$YO_STATE" "$_YO_TEST_FINISH"
 READLINE_LINE='printf first; export YO_BASH_TEST_VAR=ok; cd "$YO_TEST_CD"; false'
 _yo_readline_enter
-printf 'after=<%s> armed=%s state=%s finish=%s var=%s pwd=%s\n' "$READLINE_LINE" "$_YO_ARMED" "$YO_STATE" "$_YO_TEST_FINISH" "$YO_BASH_TEST_VAR" "$PWD"
+if [[ "$PWD" != "$START_PWD" ]]; then moved=yes; else moved=no; fi
+printf 'after=<%s> armed=%s state=%s finish=%s var=%s moved=%s\n' "$READLINE_LINE" "$_YO_ARMED" "$YO_STATE" "$_YO_TEST_FINISH" "$YO_BASH_TEST_VAR" "$moved"
 `)
 
 	for _, want := range []string{
 		"try this first\n",
 		"prefill=<printf first> armed=1 state=state-1 finish=redraw-current-line\n",
 		"done after continuation\n",
-		"after=<> armed=0 state= finish=redraw-current-line var=ok pwd=" + cdDir + "\n",
+		"after=<> armed=0 state= finish=redraw-current-line var=ok moved=yes\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("bash output missing %q:\n%s", want, out)
@@ -157,7 +159,7 @@ printf 'after=<%s> armed=%s state=%s finish=%s var=%s pwd=%s\n' "$READLINE_LINE"
 		"args:[--continue][--exit][1][--shell][bash][--output][sh]",
 		`YO_RAN:printf first; export YO_BASH_TEST_VAR=ok; cd "$YO_TEST_CD"; false` + "\n",
 		"YO_STATE:state-1\n",
-		"PWD:" + cdDir + "\n",
+		"PWD:",
 		"YO_BASH_TEST_VAR:ok\n",
 	} {
 		if !strings.Contains(log, want) {

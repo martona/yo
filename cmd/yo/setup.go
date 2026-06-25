@@ -26,7 +26,10 @@ type setupRunner struct {
 	err    io.Writer
 }
 
-var powerShellSetupHost = detectPowerShellSetupHost
+var (
+	powerShellSetupHost        = detectPowerShellSetupHost
+	shouldOfferPowerShellSetup = defaultShouldOfferPowerShellSetup
+)
 
 func runSetup(uninstall bool) {
 	if err := newSetupRunner(os.Stdin, os.Stdout, os.Stderr).run(uninstall); err != nil {
@@ -146,7 +149,7 @@ func (s *setupRunner) uninstallShell(target string) error {
 	}
 }
 
-func shouldOfferPowerShellSetup() bool {
+func defaultShouldOfferPowerShellSetup() bool {
 	return runtime.GOOS == "windows" || powerShellSetupHost() != ""
 }
 
