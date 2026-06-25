@@ -25,6 +25,19 @@ func TestShellIsZsh(t *testing.T) {
 	}
 }
 
+func TestShellIsBash(t *testing.T) {
+	for _, name := range []string{"bash", "/bin/bash", "/opt/homebrew/bin/-bash"} {
+		if !shellIsBash(name) {
+			t.Fatalf("shellIsBash(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{"zsh", "/bin/pwsh", ""} {
+		if shellIsBash(name) {
+			t.Fatalf("shellIsBash(%q) = true, want false", name)
+		}
+	}
+}
+
 func TestParseProviderChoice(t *testing.T) {
 	tests := map[string]string{
 		"1":         "anthropic",

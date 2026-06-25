@@ -74,7 +74,7 @@ func main() {
 	tokensFlag := flag.Bool("tokens", false, "show token usage (this session and all-time) and exit")
 	tokensResetFlag := flag.Bool("tokens-reset", false, "reset the all-time token counter and exit")
 	configFlag := flag.Bool("config", false, "show the resolved configuration and exit")
-	initFlag := flag.String("init", "", "print the shell integration for <shell> (powershell or zsh) and exit")
+	initFlag := flag.String("init", "", "print the shell integration for <shell> (powershell, zsh, or bash) and exit")
 	setupFlag := flag.Bool("setup", false, "install or repair the shell integration (interactive) and exit")
 	uninstallFlag := flag.Bool("uninstall", false, "remove the shell integration from your profile and exit")
 	outputFlag := flag.String("output", "json", "result output format for shell integrations (json or sh)")
@@ -417,9 +417,10 @@ Usage:
   yo --dry-run <text>       Print the assembled API request (no key or network).
   yo --init powershell      Print the PowerShell integration (for your $PROFILE).
   yo --init zsh             Print the zsh integration (for your ~/.zshrc).
+  yo --init bash            Print the bash integration (for your ~/.bashrc).
 
 One-time setup:
-  PowerShell or macOS zsh:  yo --setup
+  PowerShell, zsh, or bash: yo --setup
 Config file: ~/.yoconf (provider, model, key, base_url, memory, debug, prefill_space).
 
 Safety: nothing runs until you read the command and press Enter.
@@ -451,11 +452,11 @@ func versionString() string {
 
 // runInit prints the embedded shell-integration snippet for the named shell, to be
 // sourced from the user's profile (e.g. `yo --init powershell | Out-String | iex`,
-// or `eval "$(yo --init zsh)"`).
+// or `eval "$(yo --init zsh)"` / `eval "$(yo --init bash)"`).
 func runInit(shellName string) {
 	snippet, ok := snippetForShell(shellName)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "yo: unknown shell %q (supported: powershell, zsh)\n", shellName)
+		fmt.Fprintf(os.Stderr, "yo: unknown shell %q (supported: powershell, zsh, bash)\n", shellName)
 		os.Exit(2)
 	}
 	fmt.Print(snippet)
@@ -467,6 +468,8 @@ func snippetForShell(shellName string) (string, bool) {
 		return shell.PowerShell, true
 	case "zsh":
 		return shell.Zsh, true
+	case "bash":
+		return shell.Bash, true
 	default:
 		return "", false
 	}

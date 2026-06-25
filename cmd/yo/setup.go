@@ -75,6 +75,9 @@ func (s *setupRunner) run(uninstall bool) error {
 
 func (s *setupRunner) installShell(target, exe string) error {
 	switch target {
+	case "bash":
+		s.checkBashBinaryOnPath(exe)
+		return s.wireBashProfile(exe)
 	case "zsh":
 		s.checkZshBinaryOnPath(exe)
 		return s.wireZshProfile(exe)
@@ -85,6 +88,8 @@ func (s *setupRunner) installShell(target, exe string) error {
 
 func (s *setupRunner) uninstallShell(target string) error {
 	switch target {
+	case "bash":
+		return s.uninstallBash()
 	case "zsh":
 		return s.uninstallZsh()
 	default:
@@ -130,7 +135,13 @@ func setupTargetShell() string {
 	if runtime.GOOS == "windows" {
 		return "powershell"
 	}
-	if shellIsZsh(os.Getenv("YO_SHELL")) || shellIsZsh(os.Getenv("SHELL")) || runtime.GOOS == "darwin" {
+	if shellIsZsh(os.Getenv("YO_SHELL")) || shellIsZsh(os.Getenv("SHELL")) {
+		return "zsh"
+	}
+	if shellIsBash(os.Getenv("YO_SHELL")) || shellIsBash(os.Getenv("SHELL")) {
+		return "bash"
+	}
+	if runtime.GOOS == "darwin" {
 		return "zsh"
 	}
 	return "powershell"
@@ -139,6 +150,11 @@ func setupTargetShell() string {
 func shellIsZsh(name string) bool {
 	base := strings.ToLower(filepath.Base(strings.TrimSpace(name)))
 	return base == "zsh" || strings.HasSuffix(base, "-zsh")
+}
+
+func shellIsBash(name string) bool {
+	base := strings.ToLower(filepath.Base(strings.TrimSpace(name)))
+	return base == "bash" || strings.HasSuffix(base, "-bash")
 }
 
 // runPowerShellShellSetup delegates only PowerShell-native work to PowerShell:
