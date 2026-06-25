@@ -64,7 +64,7 @@ var noThinking bool
 
 func main() {
 	dryRun := flag.Bool("dry-run", false, "print the assembled API request to stdout and exit (no network or key needed)")
-	check := flag.Bool("check", false, "validate config and the API key (no network), then exit")
+	check := flag.Bool("check", false, "validate config, key, and shell integration health (no network), then exit")
 	cont := flag.Bool("continue", false, "continuation step; reads $env:YO_STATE (used by the shell integration)")
 	exitCode := flag.Int("exit", 0, "exit code of the just-run command (with --continue)")
 	dumpSB := flag.Bool("scrollback", false, "print the captured terminal scrollback and exit (debug)")
@@ -411,7 +411,7 @@ Usage:
   yo --tokens               Show token usage (this session and all-time).
   yo --tokens-reset         Reset the all-time token counter.
   yo --setup                Install/repair the integration: profile, shell checks, key.
-  yo --check                Validate config and the API key.
+  yo --check                Validate config, key, and shell integration health.
   yo --config               Show the resolved configuration.
   yo --version              Print the version.
   yo --dry-run <text>       Print the assembled API request (no key or network).
@@ -559,28 +559,6 @@ func commaWidth(floor int, vals ...int64) int {
 		}
 	}
 	return w
-}
-
-// runCheck validates config and the API key without any network call.
-func runCheck() {
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "config error:", err)
-		os.Exit(1)
-	}
-	if err := cfg.Ready(); err != nil {
-		fmt.Fprintln(os.Stderr, "key error:", err)
-		os.Exit(1)
-	}
-	mem := "off"
-	if cfg.Memory {
-		mem = "on"
-	}
-	dbgState := "off"
-	if cfg.Debug {
-		dbgState = "on"
-	}
-	fmt.Printf("OK  provider=%s  model=%s  memory=%s  debug=%s  key=%d chars (decoded & valid)\n", cfg.Provider, cfg.Model, mem, dbgState, len(cfg.Key))
 }
 
 // emit writes a Result to stdout in the selected machine-readable format. Errors
