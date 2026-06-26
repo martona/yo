@@ -209,4 +209,4 @@ yoshell's Bash/Readline C. The full derivative-work statement, the list of signi
 changes, and bundled third-party notices (e.g. gitleaks, MIT) are in
 [NOTICE](NOTICE).
 
-This is a personal, non-commercial project.
+This is a personal, non-commercial project. Copyright (C) 2026 [Marton Anka](https://anka.me)

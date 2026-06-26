@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">YO CLI assistant icon</title>
+  <desc id="desc">A centered, minimal orange rounded-square icon with white Y and O eye marks.</desc>
+  <defs>
+    <linearGradient id="bg" x1="216" y1="160" x2="808" y2="888" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff4a1a"/>
+      <stop offset="1" stop-color="#f23410"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="96" y="96" width="832" height="832" rx="192" fill="url(#bg)"/>
+
+  <g stroke="#fff" stroke-width="42" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Left eye: simplified Y mark -->
+    <path d="M300 397 C334 426 362 456 388 486"/>
+    <path d="M476 397 C442 426 414 456 388 486"/>
+    <path d="M388 526 V648"/>
+
+    <!-- Left eye ring -->
+    <circle cx="388" cy="486" r="40"/>
+
+    <!-- Right eye: simplified O mark -->
+    <circle cx="624" cy="484" r="104"/>
+  </g>
+
+  <!-- Knock out the over-busy Y junction; this keeps the eye, not the blob. -->
+  <circle cx="388" cy="486" r="22" fill="url(#bg)"/>
+  <circle cx="624" cy="484" r="29" fill="#fff"/>
+</svg>
