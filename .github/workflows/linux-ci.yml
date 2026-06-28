@@ -130,14 +130,21 @@ jobs:
         # container-independently, that every package actually ships the license.
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm
+          # Capture each listing into a var and match with a pipe-free `case`: a
+          # `<lister> | grep -q` would SIGPIPE the lister under `pipefail` (grep -q
+          # closes the pipe at first match) and falsely report "missing".
+          has() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
           fail=0
           for arch in amd64 arm64; do
-            echo "=== $arch deb ===";  dpkg-deb -c "packages/yo-linux-$arch.deb"
-            echo "=== $arch rpm ===";  rpm -qlp "packages/yo-linux-$arch.rpm"
-            echo "=== $arch arch ==="; tar --zstd -tf "packages/yo-linux-$arch.pkg.tar.zst"
-            dpkg-deb -c "packages/yo-linux-$arch.deb"            | grep -q 'usr/share/doc/yo/LICENSE' || { echo "::error::deb ($arch) missing LICENSE";  fail=1; }
-            rpm -qlp    "packages/yo-linux-$arch.rpm"            | grep -q '/usr/share/doc/yo/LICENSE' || { echo "::error::rpm ($arch) missing LICENSE";  fail=1; }
-            tar --zstd -tf "packages/yo-linux-$arch.pkg.tar.zst" | grep -q 'usr/share/doc/yo/LICENSE' || { echo "::error::arch ($arch) missing LICENSE"; fail=1; }
+            deb_list="$(dpkg-deb -c "packages/yo-linux-$arch.deb")"
+            rpm_list="$(rpm -qlp "packages/yo-linux-$arch.rpm")"
+            arch_list="$(tar --zstd -tf "packages/yo-linux-$arch.pkg.tar.zst")"
+            echo "=== $arch deb ===";  printf '%s\n' "$deb_list"
+            echo "=== $arch rpm ===";  printf '%s\n' "$rpm_list"
+            echo "=== $arch arch ==="; printf '%s\n' "$arch_list"
+            has "$deb_list"  'usr/share/doc/yo/LICENSE'  || { echo "::error::deb ($arch) missing LICENSE";  fail=1; }
+            has "$rpm_list"  '/usr/share/doc/yo/LICENSE' || { echo "::error::rpm ($arch) missing LICENSE";  fail=1; }
+            has "$arch_list" 'usr/share/doc/yo/LICENSE'  || { echo "::error::arch ($arch) missing LICENSE"; fail=1; }
           done
           [ "$fail" -eq 0 ] && echo "All packages ship /usr/share/doc/yo/LICENSE."
           exit $fail

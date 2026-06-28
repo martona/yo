@@ -397,10 +397,16 @@ jobs:
           # Confirm the release-specific THIRD-PARTY-LICENSES.txt bundling actually
           # rode into the shipped artifacts (linux-ci proves LICENSE/NOTICE on every
           # push; the generated TPL is only present at release time, so check it here).
+          # Capture listings into vars and match with a pipe-free `case` -- a
+          # `<lister> | grep -q` would SIGPIPE the lister under `pipefail` (grep -q
+          # closes the pipe at first match) and falsely report "missing".
+          has() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
           for arch in amd64 arm64; do
-            dpkg-deb -c "dist/pkg-$arch/"*.deb | grep -q 'usr/share/doc/yo/THIRD-PARTY-LICENSES.txt' || {
+            deb_list="$(dpkg-deb -c "dist/pkg-$arch/"*.deb)"
+            tar_list="$(tar -tzf "release-stage/yo-linux-$arch.tar.gz")"
+            has "$deb_list" 'usr/share/doc/yo/THIRD-PARTY-LICENSES.txt' || {
               echo "::error::deb ($arch) missing THIRD-PARTY-LICENSES.txt" >&2; exit 1; }
-            tar -tzf "release-stage/yo-linux-$arch.tar.gz" | grep -q 'THIRD-PARTY-LICENSES.txt' || {
+            has "$tar_list" 'THIRD-PARTY-LICENSES.txt' || {
               echo "::error::tarball ($arch) missing THIRD-PARTY-LICENSES.txt" >&2; exit 1; }
           done
           ls -la release-stage/

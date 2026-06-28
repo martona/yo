@@ -272,6 +272,15 @@ LICENSE/NOTICE on every push). No signing. Validated locally: YAML parses, both
 arches build static+stripped, tarball carries all docs, TPL assertion passes; the
 nfpm step is proven by the green Phase 4 install-test matrix (same script).
 
+First draft-release dispatch (v0.3.0) exposed one bug — **in the assertion, not the
+packaging** (nfpm produced all six packages correctly and bundled the TPL): a
+`<lister> | grep -q PATTERN` check SIGPIPEs the lister under the runner's default
+`pipefail` (grep -q closes the pipe at first match, the lister fails its next
+write), so it falsely reported the tarball "missing THIRD-PARTY-LICENSES.txt". It is
+position-dependent, which is why the structurally-identical linux-ci checks happened
+to pass. Fixed in both workflows by capturing each listing into a var and matching
+with a pipe-free `case "$list" in *PATTERN*)`.
+
 ### Phase 6 — Docs, README, Homebrew
 
 - `docs/LINUX.md` (mirror `docs/MACOS.md`): install via `.deb`/`.rpm`/Arch/`.tar.gz`/
