@@ -122,17 +122,25 @@ jobs:
           done
           ls -la packages/
 
-      - name: Inspect package contents
-        # Show exactly what nfpm put in each format -- in particular whether the
-        # /usr/share/doc/yo/ license files landed -- so a packaging-side problem is
-        # visible here in the build log, distinct from any install-side issue.
+      - name: Assert license docs are packaged
+        # GPLv3 compliance is about what the PACKAGE contains, not what survives on a
+        # given filesystem: some minimal base images (Ubuntu via dpkg path-exclude,
+        # Arch via pacman NoExtract) deliberately discard /usr/share/doc/* at install
+        # time, so an on-disk post-install check is unreliable. Assert here instead,
+        # container-independently, that every package actually ships the license.
         run: |
-          echo "=== deb (amd64) ==="
-          dpkg-deb -c packages/yo-linux-amd64.deb
-          echo "=== rpm (amd64) -- via bsdtar/tar ==="
-          tar -tvf packages/yo-linux-amd64.rpm 2>/dev/null || bsdtar -tvf packages/yo-linux-amd64.rpm 2>/dev/null || echo "(no tool to list rpm; skipping)"
-          echo "=== arch (amd64) ==="
-          tar --zstd -tvf packages/yo-linux-amd64.pkg.tar.zst
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm
+          fail=0
+          for arch in amd64 arm64; do
+            echo "=== $arch deb ===";  dpkg-deb -c "packages/yo-linux-$arch.deb"
+            echo "=== $arch rpm ===";  rpm -qlp "packages/yo-linux-$arch.rpm"
+            echo "=== $arch arch ==="; tar --zstd -tf "packages/yo-linux-$arch.pkg.tar.zst"
+            dpkg-deb -c "packages/yo-linux-$arch.deb"            | grep -q 'usr/share/doc/yo/LICENSE' || { echo "::error::deb ($arch) missing LICENSE";  fail=1; }
+            rpm -qlp    "packages/yo-linux-$arch.rpm"            | grep -q '/usr/share/doc/yo/LICENSE' || { echo "::error::rpm ($arch) missing LICENSE";  fail=1; }
+            tar --zstd -tf "packages/yo-linux-$arch.pkg.tar.zst" | grep -q 'usr/share/doc/yo/LICENSE' || { echo "::error::arch ($arch) missing LICENSE"; fail=1; }
+          done
+          [ "$fail" -eq 0 ] && echo "All packages ship /usr/share/doc/yo/LICENSE."
+          exit $fail
 
       - name: Upload packages
         uses: actions/upload-artifact@v6
@@ -194,7 +202,11 @@ jobs:
             set -u
             echo '=== install ==='
             if ! ( $install ); then echo 'FAIL: install'; exit 1; fi
-            echo '=== /usr/share/doc/yo ==='
+            # Informational only: some minimal base images (Ubuntu, Arch) strip
+            # /usr/share/doc/* at install time, so this may be empty -- that is a
+            # container policy, not a yo problem. License-in-package is asserted in the
+            # build job's 'Assert license docs are packaged' step instead.
+            echo '=== /usr/share/doc/yo (informational; may be stripped by minimal images) ==='
             ls -la /usr/share/doc/yo/ 2>&1 || true
             echo '=== smoke ==='
             fail=0
@@ -203,7 +215,6 @@ jobs:
             chk 'yo --version runs'        'yo --version >/dev/null'
             chk 'yo --help exits 0'        'yo --help >/dev/null'
             chk 'yo --init bash parses'    'yo --init bash > /tmp/snip && bash -n /tmp/snip'
-            chk 'LICENSE doc installed'    'test -f /usr/share/doc/yo/LICENSE'
             if [ \"\$fail\" -ne 0 ]; then echo \"SMOKE FAILED: $IMAGE ($ARCH/$KIND)\"; exit 1; fi
             echo \"SMOKE OK: $IMAGE ($ARCH/$KIND)\"
           "

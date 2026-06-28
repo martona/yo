@@ -212,14 +212,30 @@ amd64+arm64 binaries, runs `package_linux.sh` for both, and stages canonical
 use) as an artifact. `package-test` is a 7-entry matrix that, per distro, downloads
 the artifact and **`docker run`s the install + smoke** on the host (so the test
 container needs only its package manager + bash, not node): `dpkg -i` / `rpm -i` /
-`pacman -U` (with `SigLevel = Never` for the unsigned local pkg), then
-`command -v yo`, `yo --version`, `yo --init bash | bash -n`, `yo --check` (dummy
-key), and a `/usr/share/doc/yo/LICENSE` presence check. Coverage: debian:12,
-ubuntu:20.04, fedora, almalinux:9, archlinux on amd64; debian:12 + fedora on arm64
-(native `ubuntu-24.04-arm`, no QEMU). Because the package has zero deps, every
-install is offline — no apt/dnf repo refresh. **Swapped rockylinux:9 → almalinux:9**
-(more reliable Docker Hub library image; both are RHEL-compatible). Validated
-locally: workflow YAML parses, matrix is well-formed. Real signal on push.
+`pacman -U`, then `command -v yo`, `yo --version`, `yo --help`, and
+`yo --init bash | bash -n`. Coverage: debian:12, ubuntu:20.04, fedora, almalinux:9,
+archlinux on amd64; debian:12 + fedora on arm64 (native `ubuntu-24.04-arm`, no
+QEMU). Because the package has zero deps, every install is offline — no apt/dnf
+repo refresh. **Swapped rockylinux:9 → almalinux:9** (more reliable Docker Hub
+library image; both are RHEL-compatible).
+
+Two corrections after the first real run:
+
+- **Dropped the `sed SigLevel=Never` for Arch** — unnecessary: Arch's default
+  `LocalFileSigLevel = Optional` already permits unsigned local `pacman -U`
+  installs (the stricter `SigLevel` is for repository packages). Arch installs
+  unsigned local packages out of the box (same reason makepkg/AUR works).
+- **License-doc check moved from install-time to package-build-time.** The first
+  run failed the on-disk `/usr/share/doc/yo/LICENSE` check on ubuntu:20.04 and
+  archlinux only — because those minimal base images deliberately strip
+  `/usr/share/doc/*` at install (Ubuntu via dpkg `path-exclude`, Arch via pacman
+  `NoExtract`); debian:12/fedora/almalinux keep docs and passed. Proof it was the
+  container, not the package: ubuntu:20.04 and debian:12 install the *identical*
+  `.deb`. So the GPLv3 invariant (the **package** ships the license) is now asserted
+  container-independently in the `package` job — `dpkg-deb -c` / `rpm -qlp` /
+  `tar --zstd -tf` each grepped for `usr/share/doc/yo/LICENSE`, both arches, all
+  three formats — and the install smoke no longer checks on-disk docs. Also dropped
+  `yo --check` from the smoke (it reports shell-profile wiring, not install health).
 
 ### Phase 5 — Release legs (`_release.yml`)
 
