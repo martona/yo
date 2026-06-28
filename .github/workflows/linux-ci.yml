@@ -55,9 +55,13 @@ jobs:
           bash -n shell/yo.bash
           go run ./cmd/yo --init bash | bash -n
 
+      - name: Install zsh
+        # zsh is NOT on the GitHub Ubuntu image by default; yo targets zsh on Linux
+        # too (the POSIX setup path wires .zshrc), so install it for a real
+        # Linux-zsh syntax check distinct from the macOS runner.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends zsh
+
       - name: zsh snippet parse smoke
-        # zsh is preinstalled on the GitHub Ubuntu image; a second opinion on the
-        # zsh adapter alongside macOS CI.
         run: |
           zsh -n shell/yo.zsh
           go run ./cmd/yo --init zsh | zsh -n
