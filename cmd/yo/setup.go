@@ -196,7 +196,11 @@ func setupTargetShell() string {
 	if runtime.GOOS == "darwin" {
 		return "zsh"
 	}
-	return "powershell"
+	// Any other Unix (Linux, *BSD) with an unset/unrecognized $SHELL: bash is the
+	// universal default. Windows already returned above, so this is never reached
+	// there -- falling back to "powershell" here would send Linux setup down the
+	// (absent) PowerShell host path.
+	return "bash"
 }
 
 func shellIsZsh(name string) bool {

@@ -51,6 +51,40 @@ func TestShellIsBash(t *testing.T) {
 	}
 }
 
+func TestSetupTargetShell(t *testing.T) {
+	// An unrecognized $SHELL with no YO_SHELL override must fall back to the
+	// OS-appropriate default. The bug this guards: on Linux it used to fall back to
+	// "powershell" (sending setup down the absent PowerShell host path).
+	t.Run("unrecognized shell falls back per-OS", func(t *testing.T) {
+		t.Setenv("YO_SHELL", "")
+		t.Setenv("SHELL", "/usr/bin/fish")
+		want := "bash" // Linux and other Unix
+		switch runtime.GOOS {
+		case "windows":
+			want = "powershell"
+		case "darwin":
+			want = "zsh"
+		}
+		if got := setupTargetShell(); got != want {
+			t.Fatalf("setupTargetShell() on %s with unrecognized $SHELL = %q, want %q", runtime.GOOS, got, want)
+		}
+	})
+
+	// An explicit zsh/bash hint is honored on every non-Windows OS (Windows always
+	// returns powershell from the early guard, so skip the hint cases there).
+	if runtime.GOOS != "windows" {
+		t.Run("explicit YO_SHELL hint wins", func(t *testing.T) {
+			t.Setenv("SHELL", "/usr/bin/fish")
+			for hint, want := range map[string]string{"zsh": "zsh", "bash": "bash"} {
+				t.Setenv("YO_SHELL", hint)
+				if got := setupTargetShell(); got != want {
+					t.Fatalf("setupTargetShell() with YO_SHELL=%q = %q, want %q", hint, got, want)
+				}
+			}
+		})
+	}
+}
+
 func TestSetupRunnerInstallsAndUninstallsAllPosixProfiles(t *testing.T) {
 	withoutPowerShellSetup(t)
 

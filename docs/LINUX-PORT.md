@@ -91,6 +91,32 @@ A throwaway local/CI check before writing YAML, to confirm the assumptions:
 
 If all pass (expected), the rest is plumbing.
 
+#### Phase 0 Result (2026-06-28)
+
+Run via `scripts/phase0-linux-check.sh` on an Ubuntu 24.04 VM (Go 1.26.0, bash
+5.2). **All 14 checks PASS.** Confirmed: static amd64+arm64 builds (`file` →
+"statically linked", `ldd` → "not a dynamic executable"), native run
+(`--version`/`--help`/`--init bash`/`--check`), `gofmt`/`vet`/`go test ./...` green,
+and bash/zsh snippet parse.
+
+Two issues surfaced and were handled:
+
+- **Real bug, fixed:** `shell/yo.bash`'s non-bash guard used bash's `[[ ... ]]`,
+  which dash (Linux `/bin/sh`) cannot evaluate — so the guard failed *open* and
+  dash fell through into bash-only syntax and errored. macOS never showed this
+  because its `/bin/sh` is bash. Fixed to POSIX `[ -z "${BASH_VERSION:-}" ]`, so a
+  non-bash shell returns before parsing anything bash-specific. This fixes
+  `TestBashSnippetNonBashQuietlyNoops` on Linux and the real "sourced from a POSIX
+  shell" behavior.
+- **Environment only (not a code issue):** building over an SMB mount tripped Go's
+  VCS stamping (`git status` exit 128, "dubious ownership"). The de-risk script
+  passes `-buildvcs=false`; CI uses a clean checkout and stamps normally.
+
+Note: the committed `go.mod` go directive is `go 1.26.0` (three-part canonical
+form); a half-completed Go reinstall on the VM transiently rewrote it to `go 1.26`,
+since restored. No implication for CI (setup-go reads `go.mod`), release, or
+packaging (static binary; end-user Go version irrelevant).
+
 ### Phase 1 — Fix the Linux setup fallback bug
 
 [`cmd/yo/setup.go`](../cmd/yo/setup.go) `detectSetupShell()` falls back to
@@ -98,6 +124,15 @@ If all pass (expected), the rest is plumbing.
 — so on Linux with an unset/odd `$SHELL`, `yo --setup` tries the (absent)
 PowerShell host and fails. Add a `runtime.GOOS == "linux"` (or general non-Windows)
 fallback to `"bash"`. Add a test case alongside the existing detection tests.
+
+#### Phase 1 Result (2026-06-28)
+
+Fixed `setupTargetShell()` in `cmd/yo/setup.go`: the non-Windows fallback (unset/
+unrecognized `$SHELL`, no `YO_SHELL`) now returns `"bash"` instead of `"powershell"`.
+Windows still returns `"powershell"` from the early guard; darwin still defaults to
+`"zsh"`. Added `TestSetupTargetShell` (fallback-per-OS + explicit-hint-wins).
+Verified on Windows: build + tests green, gofmt clean. The `bash` fallback branch is
+asserted by the test on the (future) Linux CI runner.
 
 ### Phase 2 — Linux CI (`linux-ci.yml`)
 
