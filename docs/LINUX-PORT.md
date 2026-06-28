@@ -145,6 +145,17 @@ Mirror `macos-ci.yml`: checkout, `setup-go`, gofmt/vet/test, then:
 
 This phase alone is a meaningful win independent of packaging.
 
+#### Phase 2 Result (2026-06-28)
+
+Added `.github/workflows/linux-ci.yml` (mirrors `macos-ci.yml`): on
+`ubuntu-latest`, runs gofmt/vet/`go test ./...`, a **bash** snippet smoke
+(`bash -n shell/yo.bash` + `yo --init bash | bash -n` under bash 5.x — the
+first-ever CI coverage of the bash adapter, and the real >= 4.2 path macOS CI
+can't exercise), a zsh snippet smoke (zsh is preinstalled on the image), and a
+static `linux/amd64`+`arm64` build guarded by a `file ... statically linked`
+assertion. Validated locally: YAML parses, bash smoke passes, cross-builds are
+statically linked. Real Linux CI signal lands on push.
+
 ### Phase 3 — Packaging layer (nfpm + script)
 
 - Add [`packaging/nfpm.yaml`](../packaging/nfpm.yaml) (adapted; no deps; GPLv3;

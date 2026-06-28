@@ -1,0 +1,81 @@
+name: Linux CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build, vet, test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: gofmt (must be clean)
+        run: |
+          bad="$(gofmt -l .)"
+          if [[ -n "$bad" ]]; then
+            echo "gofmt needs running on:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "gofmt clean"
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...
+
+      - name: bash snippet parse smoke
+        # Ubuntu runners ship bash 5.x -- this exercises the real bash >= 4.2 path
+        # that macOS CI cannot (its /bin/bash is 3.2 and its /bin/sh is bash, which
+        # hid the dash no-op-guard bug fixed in the Linux port).
+        run: |
+          bash --version | head -n1
+          bash -n shell/yo.bash
+          go run ./cmd/yo --init bash | bash -n
+
+      - name: zsh snippet parse smoke
+        # zsh is preinstalled on the GitHub Ubuntu image; a second opinion on the
+        # zsh adapter alongside macOS CI.
+        run: |
+          zsh -n shell/yo.zsh
+          go run ./cmd/yo --init zsh | zsh -n
+
+      - name: Build linux binaries
+        env:
+          GOOS: linux
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            GOARCH="$arch" go build -trimpath -o "dist/yo-linux-$arch" ./cmd/yo
+          done
+          ls -la dist/
+          # Confirm the build is fully static (no dynamic deps, not even glibc) -- the
+          # invariant the whole Linux packaging story rests on.
+          file dist/yo-linux-amd64
+          file dist/yo-linux-amd64 | grep -q "statically linked" || {
+            echo "::error::dist/yo-linux-amd64 is not statically linked" >&2
+            exit 1
+          }
