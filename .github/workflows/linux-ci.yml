@@ -122,6 +122,18 @@ jobs:
           done
           ls -la packages/
 
+      - name: Inspect package contents
+        # Show exactly what nfpm put in each format -- in particular whether the
+        # /usr/share/doc/yo/ license files landed -- so a packaging-side problem is
+        # visible here in the build log, distinct from any install-side issue.
+        run: |
+          echo "=== deb (amd64) ==="
+          dpkg-deb -c packages/yo-linux-amd64.deb
+          echo "=== rpm (amd64) -- via bsdtar/tar ==="
+          tar -tvf packages/yo-linux-amd64.rpm 2>/dev/null || bsdtar -tvf packages/yo-linux-amd64.rpm 2>/dev/null || echo "(no tool to list rpm; skipping)"
+          echo "=== arch (amd64) ==="
+          tar --zstd -tvf packages/yo-linux-amd64.pkg.tar.zst
+
       - name: Upload packages
         uses: actions/upload-artifact@v6
         with:
@@ -163,22 +175,35 @@ jobs:
           case "$KIND" in
             deb)  install="dpkg -i /pkg/yo-linux-$ARCH.deb" ;;
             rpm)  install="rpm -i /pkg/yo-linux-$ARCH.rpm" ;;
-            # Local nfpm packages are unsigned; pacman's default SigLevel rejects them,
-            # so relax it for the smoke (we are testing package shape, not signatures).
-            arch) install="sed -i 's/^SigLevel.*/SigLevel = Never/' /etc/pacman.conf && pacman -U --noconfirm /pkg/yo-linux-$ARCH.pkg.tar.zst" ;;
+            # Unsigned local packages install fine: Arch's default LocalFileSigLevel is
+            # Optional (it governs `pacman -U` on local files; the stricter SigLevel
+            # applies to repository packages), which is why makepkg/AUR installs work.
+            arch) install="pacman -U --noconfirm /pkg/yo-linux-$ARCH.pkg.tar.zst" ;;
             *)    echo "unknown kind: $KIND" >&2; exit 1 ;;
           esac
           # The package has ZERO dependencies (static binary), so every install runs
           # offline -- no apt/dnf repo refresh needed. The host runs the actions; the
           # container only needs its package manager + bash.
+          #
+          # Self-diagnosing: install must succeed (hard fail), then run each assertion
+          # independently and report PASS/FAIL per step so one run shows exactly what is
+          # wrong on each distro. We deliberately do NOT use `yo --check` here -- it
+          # reports on shell-profile wiring (which we never set up in a throwaway
+          # container), not on whether the package installed correctly.
           docker run --rm -v "$PWD/packages:/pkg:ro" "$IMAGE" bash -c "
-            set -eu
-            $install
-            echo '--- installed; smoke test ---'
-            command -v yo
-            yo --version
-            yo --init bash > /tmp/snip && bash -n /tmp/snip
-            ANTHROPIC_API_KEY=dummy-key yo --check
-            test -f /usr/share/doc/yo/LICENSE
-            echo 'SMOKE OK: $IMAGE ($ARCH/$KIND)'
+            set -u
+            echo '=== install ==='
+            if ! ( $install ); then echo 'FAIL: install'; exit 1; fi
+            echo '=== /usr/share/doc/yo ==='
+            ls -la /usr/share/doc/yo/ 2>&1 || true
+            echo '=== smoke ==='
+            fail=0
+            chk() { if eval \"\$2\"; then echo \"  PASS: \$1\"; else echo \"  FAIL: \$1\"; fail=1; fi; }
+            chk 'yo resolves on PATH'      'command -v yo >/dev/null'
+            chk 'yo --version runs'        'yo --version >/dev/null'
+            chk 'yo --help exits 0'        'yo --help >/dev/null'
+            chk 'yo --init bash parses'    'yo --init bash > /tmp/snip && bash -n /tmp/snip'
+            chk 'LICENSE doc installed'    'test -f /usr/share/doc/yo/LICENSE'
+            if [ \"\$fail\" -ne 0 ]; then echo \"SMOKE FAILED: $IMAGE ($ARCH/$KIND)\"; exit 1; fi
+            echo \"SMOKE OK: $IMAGE ($ARCH/$KIND)\"
           "
