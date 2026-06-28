@@ -326,10 +326,97 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    needs: notices
+    # No signing job: a static CGO_ENABLED=0 binary needs none, and integrity is
+    # covered by SHA256SUMS.txt + the build-provenance attestation in publish. Both
+    # arches are cross-built and cross-packaged from one amd64 runner (pure Go + an
+    # arch-agnostic nfpm), so unlike Windows/macOS there is no per-arch job.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Test before release
+        run: go test ./...
+
+      - name: Build static binaries (amd64 + arm64)
+        env:
+          GOOS: linux
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          ldflags="-s -w -X main.version=${{ inputs.tag }}"
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            GOARCH="$arch" go build -trimpath -ldflags "$ldflags" -o "dist/yo-linux-$arch" ./cmd/yo
+          done
+          file dist/yo-linux-amd64 | grep -q "statically linked" || {
+            echo "::error::dist/yo-linux-amd64 is not statically linked" >&2; exit 1; }
+
+      - name: Download license texts
+        uses: actions/download-artifact@v7
+        with:
+          name: third-party-licenses
+          path: third-party-licenses
+
+      - name: Package (deb/rpm/arch) + stage tarballs
+        run: |
+          set -euo pipefail
+          mkdir -p release-stage
+          for arch in amd64 arm64; do
+            # Native packages -- package_linux.sh autodetects the downloaded
+            # THIRD-PARTY-LICENSES.txt and bundles all license docs into the package.
+            bash scripts/package_linux.sh --version "${{ inputs.version }}" \
+              --binary "dist/yo-linux-$arch" --arch "$arch" --outdir "dist/pkg-$arch"
+            # Version-LESS canonical names for stable releases/latest/download URLs
+            # (the version still lives in package metadata + `yo --version`).
+            cp "$(ls dist/pkg-$arch/*.deb)"         "release-stage/yo-linux-$arch.deb"
+            cp "$(ls dist/pkg-$arch/*.rpm)"         "release-stage/yo-linux-$arch.rpm"
+            cp "$(ls dist/pkg-$arch/*.pkg.tar.zst)" "release-stage/yo-linux-$arch.pkg.tar.zst"
+
+            # Loose tarball (binary + license/provenance docs), the Linux analogue of
+            # the win/mac zips, for users who just want it on PATH themselves.
+            stage="pkg-tar-$arch"
+            rm -rf "$stage"; mkdir -p "$stage"
+            cp "dist/yo-linux-$arch" "$stage/yo"
+            cp LICENSE NOTICE README.md "$stage/"
+            cp third-party-licenses/THIRD-PARTY-LICENSES.txt "$stage/"
+            tar -C "$stage" -czf "release-stage/yo-linux-$arch.tar.gz" .
+          done
+
+          # Confirm the release-specific THIRD-PARTY-LICENSES.txt bundling actually
+          # rode into the shipped artifacts (linux-ci proves LICENSE/NOTICE on every
+          # push; the generated TPL is only present at release time, so check it here).
+          for arch in amd64 arm64; do
+            dpkg-deb -c "dist/pkg-$arch/"*.deb | grep -q 'usr/share/doc/yo/THIRD-PARTY-LICENSES.txt' || {
+              echo "::error::deb ($arch) missing THIRD-PARTY-LICENSES.txt" >&2; exit 1; }
+            tar -tzf "release-stage/yo-linux-$arch.tar.gz" | grep -q 'THIRD-PARTY-LICENSES.txt' || {
+              echo "::error::tarball ($arch) missing THIRD-PARTY-LICENSES.txt" >&2; exit 1; }
+          done
+          ls -la release-stage/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-linux
+          path: release-stage/*
+          if-no-files-found: error
+          retention-days: 1
+
   publish:
     name: Create release
     runs-on: ubuntu-latest
-    needs: [notices, build-windows, build-macos]
+    needs: [notices, build-windows, build-macos, build-linux]
     steps:
       - name: Download release artifacts
         uses: actions/download-artifact@v7

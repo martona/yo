@@ -256,6 +256,22 @@ Add a `build-linux` job (`needs: notices`):
 `SHA256SUMS.txt`, `attest-build-provenance`, and `gh-release` ingest the new assets
 with no further change. **No signing job** — not needed for a static binary.
 
+#### Phase 5 Result (2026-06-28)
+
+Added a single `build-linux` job to `_release.yml` (`needs: notices`) and added it
+to `publish`'s `needs`. **Simplification vs. the plan/clipp:** no per-arch matrix
+and no native ARM runner — one `ubuntu-latest` job cross-builds amd64+arm64 (static
+Go) and cross-packages both (arch-agnostic nfpm). The job: `go test`, static build
+with release ldflags (`-s -w -X main.version=<tag>`, `-trimpath`) + a static-link
+guard, downloads the `third-party-licenses` artifact, runs `package_linux.sh` per
+arch, and stages version-less `yo-linux-$arch.{deb,rpm,pkg.tar.zst,tar.gz}` (the
+tarball mirrors the win/mac zips: `yo` + LICENSE/NOTICE/README/THIRD-PARTY-LICENSES)
+as `release-linux`. A release-specific assertion confirms the generated
+THIRD-PARTY-LICENSES.txt rode into each deb + tarball (linux-ci already proves
+LICENSE/NOTICE on every push). No signing. Validated locally: YAML parses, both
+arches build static+stripped, tarball carries all docs, TPL assertion passes; the
+nfpm step is proven by the green Phase 4 install-test matrix (same script).
+
 ### Phase 6 — Docs, README, Homebrew
 
 - `docs/LINUX.md` (mirror `docs/MACOS.md`): install via `.deb`/`.rpm`/Arch/`.tar.gz`/
