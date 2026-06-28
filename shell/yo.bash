@@ -11,7 +11,11 @@
 # Requires bash 4.2+ with Readline. macOS /bin/bash 3.2 is not supported; install
 # a modern bash (for example via Homebrew) and source this from that shell.
 
-if [[ -z ${BASH_VERSION-} ]]; then
+# Bail out for non-bash shells FIRST, using POSIX `[ ]` (not bash's `[[ ]]`): a shell
+# like dash (Linux /bin/sh) has no `[[` keyword, so a `[[`-based guard would fail open
+# and let dash fall through into the bash-only syntax below and choke. `[ ]` is POSIX,
+# so dash evaluates this correctly and returns before parsing anything bash-specific.
+if [ -z "${BASH_VERSION:-}" ]; then
     return 0 2>/dev/null || exit 0
 fi
 
