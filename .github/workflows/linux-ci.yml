@@ -83,3 +83,102 @@ jobs:
             echo "::error::dist/yo-linux-amd64 is not statically linked" >&2
             exit 1
           }
+
+  package:
+    name: Build + package (deb/rpm/arch)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Build static binaries (amd64 + arm64)
+        env:
+          GOOS: linux
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            GOARCH="$arch" go build -trimpath -ldflags "-s -w" -o "dist/yo-linux-$arch" ./cmd/yo
+          done
+
+      - name: Build packages (nfpm) and stage canonical names
+        # A synthetic 0.0.0 version: the package install/smoke does not depend on the
+        # version value, and the release pipeline (Phase 5) passes the real tag.
+        run: |
+          mkdir -p packages
+          for arch in amd64 arm64; do
+            bash scripts/package_linux.sh --version 0.0.0 --binary "dist/yo-linux-$arch" --arch "$arch" --outdir "dist/pkg-$arch"
+            cp "$(ls dist/pkg-$arch/*.deb)"         "packages/yo-linux-$arch.deb"
+            cp "$(ls dist/pkg-$arch/*.rpm)"         "packages/yo-linux-$arch.rpm"
+            cp "$(ls dist/pkg-$arch/*.pkg.tar.zst)" "packages/yo-linux-$arch.pkg.tar.zst"
+          done
+          ls -la packages/
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v6
+        with:
+          name: linux-packages
+          path: packages/*
+          if-no-files-found: error
+          retention-days: 1
+
+  package-test:
+    name: Install ${{ matrix.kind }} on ${{ matrix.image }} (${{ matrix.arch }})
+    needs: package
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: "debian:12",        arch: amd64, kind: deb,  runner: ubuntu-latest }
+          - { image: "ubuntu:20.04",     arch: amd64, kind: deb,  runner: ubuntu-latest }
+          - { image: "fedora:latest",    arch: amd64, kind: rpm,  runner: ubuntu-latest }
+          - { image: "almalinux:9",      arch: amd64, kind: rpm,  runner: ubuntu-latest }
+          - { image: "archlinux:latest", arch: amd64, kind: arch, runner: ubuntu-latest }
+          # arm64: lighter smoke (one deb + one rpm) on a native ARM runner, no QEMU.
+          - { image: "debian:12",        arch: arm64, kind: deb,  runner: ubuntu-24.04-arm }
+          - { image: "fedora:latest",    arch: arm64, kind: rpm,  runner: ubuntu-24.04-arm }
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v7
+        with:
+          name: linux-packages
+          path: packages
+
+      - name: Install and smoke-test in container
+        env:
+          IMAGE: ${{ matrix.image }}
+          ARCH: ${{ matrix.arch }}
+          KIND: ${{ matrix.kind }}
+        run: |
+          set -euo pipefail
+          case "$KIND" in
+            deb)  install="dpkg -i /pkg/yo-linux-$ARCH.deb" ;;
+            rpm)  install="rpm -i /pkg/yo-linux-$ARCH.rpm" ;;
+            # Local nfpm packages are unsigned; pacman's default SigLevel rejects them,
+            # so relax it for the smoke (we are testing package shape, not signatures).
+            arch) install="sed -i 's/^SigLevel.*/SigLevel = Never/' /etc/pacman.conf && pacman -U --noconfirm /pkg/yo-linux-$ARCH.pkg.tar.zst" ;;
+            *)    echo "unknown kind: $KIND" >&2; exit 1 ;;
+          esac
+          # The package has ZERO dependencies (static binary), so every install runs
+          # offline -- no apt/dnf repo refresh needed. The host runs the actions; the
+          # container only needs its package manager + bash.
+          docker run --rm -v "$PWD/packages:/pkg:ro" "$IMAGE" bash -c "
+            set -eu
+            $install
+            echo '--- installed; smoke test ---'
+            command -v yo
+            yo --version
+            yo --init bash > /tmp/snip && bash -n /tmp/snip
+            ANTHROPIC_API_KEY=dummy-key yo --check
+            test -f /usr/share/doc/yo/LICENSE
+            echo 'SMOKE OK: $IMAGE ($ARCH/$KIND)'
+          "

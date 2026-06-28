@@ -166,6 +166,18 @@ statically linked. Real Linux CI signal lands on push.
   `.deb` + `.rpm` + `.pkg.tar.zst` from one built binary.
 - Locally runnable for shape-testing a dev build.
 
+#### Phase 3 Result (2026-06-28)
+
+Added `packaging/nfpm.yaml` and `scripts/package_linux.sh` (cribbed from clipp).
+nfpm config is simplified: **no `depends:`/`overrides:` at all** (static binary),
+`license: GPL-3.0-or-later`, binary → `/usr/bin/yo`, and license/provenance docs
+globbed from a script-staged dir → `/usr/share/doc/yo/`. The script keeps clipp's
+proven machinery (auto-fetch pinned nfpm, envsubst/perl template render, tolerant
+per-packager loop, local-disk staging for the SMB-mount hazard) and adds doc
+staging (LICENSE/NOTICE/README always; THIRD-PARTY-LICENSES.txt when present) and a
+leading-`v` strip on the version. Validated locally: script parses (`bash -n`),
+rendered nfpm config is valid YAML mapping binary + docs correctly.
+
 ### Phase 4 — Automated package install-testing (in `linux-ci.yml`)
 
 After Phase 2's build, run `package_linux.sh`, upload the packages as a CI
@@ -191,6 +203,23 @@ Full matrix on amd64; a lighter smoke (one `.deb` + one `.rpm`) on
 **Un-CI-able (stays a manual checklist):** the interactive prefill, continuation
 loop, raw-line capture, and Ctrl-C cancellation — they need a real PTY/line
 editor, same limitation as every platform.
+
+#### Phase 4 Result (2026-06-28)
+
+Added `package` + `package-test` jobs to `linux-ci.yml`. `package` builds static
+amd64+arm64 binaries, runs `package_linux.sh` for both, and stages canonical
+`yo-linux-$arch.{deb,rpm,pkg.tar.zst}` names (the same renaming the release will
+use) as an artifact. `package-test` is a 7-entry matrix that, per distro, downloads
+the artifact and **`docker run`s the install + smoke** on the host (so the test
+container needs only its package manager + bash, not node): `dpkg -i` / `rpm -i` /
+`pacman -U` (with `SigLevel = Never` for the unsigned local pkg), then
+`command -v yo`, `yo --version`, `yo --init bash | bash -n`, `yo --check` (dummy
+key), and a `/usr/share/doc/yo/LICENSE` presence check. Coverage: debian:12,
+ubuntu:20.04, fedora, almalinux:9, archlinux on amd64; debian:12 + fedora on arm64
+(native `ubuntu-24.04-arm`, no QEMU). Because the package has zero deps, every
+install is offline — no apt/dnf repo refresh. **Swapped rockylinux:9 → almalinux:9**
+(more reliable Docker Hub library image; both are RHEL-compatible). Validated
+locally: workflow YAML parses, matrix is well-formed. Real signal on push.
 
 ### Phase 5 — Release legs (`_release.yml`)
 
