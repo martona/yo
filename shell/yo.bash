@@ -274,6 +274,12 @@ _yo_readline_enter() {
             return 0
         fi
 
+        # Move off the readline prompt line before the binary runs. This executes
+        # inside a `bind -x` widget while readline still owns the display, so the
+        # binary's transient "thinking..." (stderr) and any chat output printed below
+        # would otherwise overwrite the prompt line. The continuation path
+        # (_yo_run_pending_line) already does this; the initial-query path must too.
+        printf '\n'
         _yo_clear_continuation
         bin="$(_yo_bin)" || {
             _yo_error "yo: binary not found; put it on PATH or set YO_BIN to its full path."

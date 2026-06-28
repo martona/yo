@@ -264,9 +264,10 @@ and no native ARM runner — one `ubuntu-latest` job cross-builds amd64+arm64 (s
 Go) and cross-packages both (arch-agnostic nfpm). The job: `go test`, static build
 with release ldflags (`-s -w -X main.version=<tag>`, `-trimpath`) + a static-link
 guard, downloads the `third-party-licenses` artifact, runs `package_linux.sh` per
-arch, and stages version-less `yo-linux-$arch.{deb,rpm,pkg.tar.zst,tar.gz}` (the
-tarball mirrors the win/mac zips: `yo` + LICENSE/NOTICE/README/THIRD-PARTY-LICENSES)
-as `release-linux`. A release-specific assertion confirms the generated
+arch, and stages version-less assets as `release-linux`: the three native packages
+`yo-linux-$arch.{deb,rpm,pkg.tar.zst}` plus the **bare binary** `yo-linux-$arch`
+(clipp parity). (An initial `.tar.gz` was dropped per author — unused; the license
+rides in the release's LICENSE + SHA256SUMS and the native packages.) A release-specific assertion confirms the generated
 THIRD-PARTY-LICENSES.txt rode into each deb + tarball (linux-ci already proves
 LICENSE/NOTICE on every push). No signing. Validated locally: YAML parses, both
 arches build static+stripped, tarball carries all docs, TPL assertion passes; the
@@ -300,6 +301,22 @@ edit → run; chat; multi-step continuation; edited-command reconciliation; raw-
 capture with metacharacters; bare-Enter and Ctrl-C cancel; `yo why did that fail`
 inside tmux and zellij; no-multiplexer graceful degrade; `prefill_space true`.
 
+#### Interactive finding (2026-06-28): bash initial-query display corruption
+
+First real Linux bash test showed `yo <query>` overwriting the prompt line with
+`thinking...` + model output (zsh was clean). **Latent bug, not introduced by the
+port** (only the dash guard changed in `shell/yo.bash` this session, inert under
+bash). Root cause: bash has no `print -z`, so the adapter calls the binary from
+inside the `bind -x` accept widget (`_yo_readline_enter`) while readline still owns
+the display — the binary's transient `thinking...` (stderr) and chat output land on
+the prompt line. The continuation path (`_yo_run_pending_line`) already guarded this
+with a leading `printf '\n'`; the initial-query path didn't. Fixed by adding the
+same `printf '\n'` before the binary call (after the `-*` flag bypass, so
+`yo --flag` lines still accept normally). zsh is unaffected (its widget only
+rewrites the buffer; the binary runs from the `yo` function as a normal command).
+Unit tests (`strings.Contains` on behavioral markers) still pass; needs an
+interactive VM confirmation.
+
 ## Suggested order
 
 1. Phase 0 de-risk.
@@ -319,7 +336,9 @@ only one that changes shipped artifacts; everything before it is CI/dev-only.
 - **Distro matrix breadth.** Recommend the five above (covers deb/rpm/arch + an
   old-userland deb). openSUSE (`zypper`) is optional — yo's zero-dep package
   sidesteps the SUSE soname issue clipp documents, so it's low-value to add.
-- **Loose download format.** Recommend `.tar.gz` (carries license docs, Linux
-  convention) over a bare binary. Cheap; matches win/mac zip contents.
+- **Loose download format.** Bare `yo-linux-$arch` binary only (clipp parity:
+  `curl … -o yo && chmod +x`). A `.tar.gz` was tried but dropped as unused — the
+  license is conveyed by the release's own LICENSE + SHA256SUMS and the native
+  packages, matching clipp's bare-binary approach.
 - **arm64 test depth.** Recommend lighter smoke on arm64 (build is native, but
   full distro-matrix duplication there adds time for little extra signal).
