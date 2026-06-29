@@ -1,6 +1,6 @@
 # yo: a natural-language command assistant for your shell
 
-![yo in action](docs/yodemo.gif)
+![yo in action](docs/yodemo4.gif)
 
 Type `yo <find files over 1gb>` at your prompt. The request goes to an LLM, and the
 command it suggests is prefilled onto your next prompt line: ready to run,
