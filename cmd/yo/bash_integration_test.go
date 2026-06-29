@@ -160,12 +160,8 @@ func TestBashSnippetQueryAndContinuation(t *testing.T) {
 export YO_BIN=`+shellQuote(fake)+`
 export YO_FAKE_LOG=`+shellQuote(logPath)+`
 source `+shellQuote(snippet)+`
-# Stub the interactive-only prefill and history probes so the state machine is
-# exercised deterministically without a real terminal.
+# Stub the interactive-only prefill so the state machine is exercised without a tty.
 _yo_prefill() { printf 'PREFILL:<%s>\n' "$1"; }
-HN=500
-_yo_hist_num() { printf '%s' "$HN"; }
-_yo_last_command() { printf 'printf first'; }
 
 # Accept-line rewrite quotes a metacharacter-laden query to one literal arg.
 READLINE_LINE='yo what does (echo hi | wc -c) mean; echo bad'
@@ -176,11 +172,13 @@ printf 'rewrite=<%s>\n' "$READLINE_LINE"
 _yo_invoke 'what does (echo hi | wc -c) mean; echo bad'
 printf 'invoke armed=%s state=%s seen=%s\n' "$_YO_ARMED" "$YO_STATE" "$_YO_SEEN_PROMPT"
 
-# Prompt cycle: first prompt records the baseline; then a command runs (history
-# advances) and the next prompt drives the continuation.
+# Prompt cycle: first prompt marks seen; then the user submits the prefilled command
+# (the accept-line hook flags it ran), and the next prompt drives the continuation.
 _yo_precmd
-printf 'p1 seen=%s baseline=%s\n' "$_YO_SEEN_PROMPT" "$_YO_HIST_BASELINE"
-HN=501
+printf 'p1 seen=%s ran=%s\n' "$_YO_SEEN_PROMPT" "$_YO_RAN_SINCE_ARM"
+READLINE_LINE='printf first'
+_yo_rewrite_buffer
+printf 'submit ran=%s last=<%s>\n' "$_YO_RAN_SINCE_ARM" "$_YO_LAST_RAN"
 _yo_precmd
 printf 'p2 armed=%s\n' "$_YO_ARMED"
 `)
@@ -190,7 +188,8 @@ printf 'p2 armed=%s\n' "$_YO_ARMED"
 		"try this first\n",
 		"PREFILL:<printf first>\n",
 		"invoke armed=1 state=state-1 seen=0\n",
-		"p1 seen=1 baseline=500\n",
+		"p1 seen=1 ran=0\n",
+		"submit ran=1 last=<printf first>\n",
 		"done after continuation\n",
 		"p2 armed=0\n",
 	} {
@@ -233,8 +232,6 @@ func TestBashSnippetFlagsBypassAndSafeEval(t *testing.T) {
 	out := runBash(t, `
 source `+shellQuote(snippet)+`
 _yo_prefill() { :; }
-HN=700
-_yo_hist_num() { printf '%s' "$HN"; }
 
 # Debug-flag query: rewrite leaves it alone (handled by normal arg parsing).
 READLINE_LINE='yo --check | cat'
@@ -245,8 +242,10 @@ printf 'flag-line=<%s>\n' "$READLINE_LINE"
 _yo_apply_result `+shellQuote(result)+` 0
 [[ ! -e `+shellQuote(badPath)+` ]] || exit 42
 
-# Armed but no command runs before the next prompt -> cancel.
+# Armed, but a bare Enter (empty line) submits nothing -> cancel on the next prompt.
 _yo_arm_continuation 'state-2' 1
+READLINE_LINE=''
+_yo_rewrite_buffer
 _yo_precmd
 printf 'cancelled armed=%s state=%s\n' "$_YO_ARMED" "$YO_STATE"
 `)

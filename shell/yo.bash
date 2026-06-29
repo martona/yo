@@ -46,7 +46,7 @@ fi
 _YO_ARMED=0
 _YO_SEEN_PROMPT=0
 _YO_RAN_SINCE_ARM=0
-_YO_HIST_BASELINE=''
+_YO_LAST_RAN=''
 _YO_RESTORE_ECHO=0
 
 _yo_bin() {
@@ -87,25 +87,11 @@ _yo_error() {
     fi
 }
 
-# Last interactive history event number, robust to HISTTIMEFORMAT (the timestamp
-# follows the number) -- used to detect whether a command actually ran.
-_yo_hist_num() {
-    history 1 2>/dev/null | command sed -n 's/^[[:space:]]*\([0-9][0-9]*\).*/\1/p'
-}
-
-# The exact last command line, no number/timestamp (fc -ln strips both) -- used for
-# the suggested-vs-executed reconciliation (YO_RAN).
-_yo_last_command() {
-    local c
-    c="$(fc -ln -1 2>/dev/null)" || return 0
-    printf '%s' "${c#"${c%%[![:space:]]*}"}"
-}
-
 _yo_clear_continuation() {
     _YO_ARMED=0
     _YO_SEEN_PROMPT=0
     _YO_RAN_SINCE_ARM=0
-    _YO_HIST_BASELINE=''
+    _YO_LAST_RAN=''
     export YO_STATE=''
     export YO_RAN=''
 }
@@ -116,12 +102,7 @@ _yo_arm_continuation() {
     _YO_ARMED=1
     _YO_SEEN_PROMPT="${2:-0}"
     _YO_RAN_SINCE_ARM=0
-    # A continuation step arms while already at a prompt (seen_prompt=1), so the
-    # history baseline must be taken now; an initial query (seen_prompt=0) takes it
-    # at the first prompt instead (see _yo_precmd).
-    if [[ $_YO_SEEN_PROMPT == 1 ]]; then
-        _YO_HIST_BASELINE="$(_yo_hist_num)"
-    fi
+    _YO_LAST_RAN=''
 }
 
 # Place an editable command on the NEXT prompt via the terminal's DSR reply, and
@@ -254,23 +235,38 @@ _yo_single_quote() {
     printf '%s' "$out"
 }
 
-# Accept-line hook: rewrite a raw `yo <query>` buffer to `yo '<query>'` before readline
-# parses it, so metacharacters ( ) < > & ; | $ survive. The bound finish key then
-# accept-lines it (preserving the typed line on screen). Non-`yo` lines are untouched.
+# Accept-line hook (fires on every Enter, before readline parses the line). Two jobs:
+#   1. Rewrite a raw `yo <query>` buffer to `yo '<query>'` so metacharacters
+#      ( ) < > & ; | $ survive; the bound finish key then accept-lines it, preserving
+#      the typed line on screen.
+#   2. Act as the bash `preexec`: if a continuation is armed and the user submits a
+#      non-empty NON-yo line, record that a command ran and what it was. This is a
+#      readline-level signal (the line about to be accepted), independent of shell
+#      history -- so it works even with prefill_space / HISTCONTROL=ignorespace, which
+#      would hide the command from history.
 _yo_rewrite_buffer() {
     local line="$READLINE_LINE" query q
 
-    [[ $line =~ ^[[:space:]]*yo[[:space:]]+([^[:space:]].*)$ ]] || return 0
-    query="${BASH_REMATCH[1]}"
-    # A query that starts with `-` is a debug-flag call (yo --dry-run ...): leave it
-    # for normal argument parsing.
-    [[ $query == -* ]] && return 0
-    # Already one single-quoted token (e.g. a line recalled from history): idempotent.
-    [[ $query == \'*\' ]] && return 0
+    if [[ $line =~ ^[[:space:]]*yo[[:space:]]+([^[:space:]].*)$ ]]; then
+        query="${BASH_REMATCH[1]}"
+        # A query that starts with `-` is a debug-flag call (yo --dry-run ...): leave
+        # it for normal argument parsing.
+        [[ $query == -* ]] && return 0
+        # Already one single-quoted token (e.g. a line recalled from history): idempotent.
+        [[ $query == \'*\' ]] && return 0
+        q="$(_yo_single_quote "$query")"
+        READLINE_LINE="yo $q"
+        READLINE_POINT=${#READLINE_LINE}
+        return 0
+    fi
 
-    q="$(_yo_single_quote "$query")"
-    READLINE_LINE="yo $q"
-    READLINE_POINT=${#READLINE_LINE}
+    if [[ $_YO_ARMED == 1 && $_YO_SEEN_PROMPT == 1 && $_YO_RAN_SINCE_ARM == 0 ]]; then
+        local trimmed="${line#"${line%%[![:space:]]*}"}"
+        if [[ -n $trimmed ]]; then
+            _YO_RAN_SINCE_ARM=1
+            _YO_LAST_RAN="$trimmed"
+        fi
+    fi
 }
 
 # PROMPT_COMMAND hook (bash analogue of zsh precmd). Drives continuation and restores
@@ -287,32 +283,29 @@ _yo_precmd() {
     [[ $_YO_ARMED == 1 ]] || return "$last_status"
 
     # First prompt after arming an initial query: the command is now prefilled and
-    # waiting. Record the history baseline and wait for the user to run it.
+    # waiting. Mark it seen and wait for the user to run it (the accept-line hook will
+    # flag _YO_RAN_SINCE_ARM when they do).
     if [[ $_YO_SEEN_PROMPT != 1 ]]; then
         _YO_SEEN_PROMPT=1
-        _YO_HIST_BASELINE="$(_yo_hist_num)"
         return "$last_status"
     fi
 
-    # If no new command entered history since arming, the user declined (bare Enter,
-    # Ctrl-C, or cleared the line): cancel the sequence.
-    local now
-    now="$(_yo_hist_num)"
-    if [[ -n $_YO_HIST_BASELINE && $now == "$_YO_HIST_BASELINE" ]]; then
+    # No command was submitted since arming -> the user declined (bare Enter, Ctrl-C,
+    # or cleared the line): cancel the sequence.
+    if [[ $_YO_RAN_SINCE_ARM != 1 ]]; then
         _yo_clear_continuation
         return "$last_status"
     fi
 
     # A command ran: fetch the next step with its exit code and the executed command.
     _YO_ARMED=0
-    local bin result ran
+    local bin result
     bin="$(_yo_bin)" || {
         _yo_error "yo: binary not found; cannot continue."
         _yo_clear_continuation
         return "$last_status"
     }
-    ran="$(_yo_last_command)"
-    export YO_RAN="$ran"
+    export YO_RAN="$_YO_LAST_RAN"
     result="$("$bin" --continue --exit "$last_status" --shell bash --output sh --width "$(_yo_width)")"
     export YO_RAN=''
     _yo_apply_result "$result" 1
