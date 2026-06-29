@@ -11,7 +11,7 @@ brew install martona/tap/yo
 yo --setup
 ```
 
-`yo --setup` offers to add the shell integration to both supported POSIX shell profiles
+`yo --setup` adds the shell integration to both supported POSIX shell profiles
 (`${ZDOTDIR:-$HOME}/.zshrc` for zsh, `$HOME/.bashrc` for bash), regardless of
 which shell launched setup, and can configure an API key. Open a fresh terminal,
 then run:

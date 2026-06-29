@@ -390,6 +390,10 @@ jobs:
             cp "dist/yo-linux-$arch" "release-stage/yo-linux-$arch"
           done
 
+          # The one-line `curl ... | bash` installer (picks the native package, or the
+          # bare binary). Shipped as a stable releases/latest/download/install.sh URL.
+          cp scripts/install.sh release-stage/install.sh
+
           # Confirm the release-specific THIRD-PARTY-LICENSES.txt bundling actually
           # rode into the shipped artifacts (linux-ci proves LICENSE/NOTICE on every
           # push; the generated TPL is only present at release time, so check it here).

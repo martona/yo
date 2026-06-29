@@ -8,8 +8,7 @@ edit, or cancel. Ask a question instead and you get a printed answer. No command
 runs until you press Enter.
 
 `yo` is an acknowledged **GPLv3 derivative work** of
-[yoshell (`pizlonator/yosh`)](https://github.com/pizlonator/yosh): it reuses
-yoshell's system-prompt design and tool/response protocol. It is a standalone Go
+[yoshell (`pizlonator/yosh`)](https://github.com/pizlonator/yosh). It is a standalone Go
 binary plus a small shell-integration snippet. See
 [License & provenance](#license--provenance).
 
@@ -17,11 +16,12 @@ binary plus a small shell-integration snippet. See
 
 ## Status
 
-- **Works today:** Windows PowerShell **7+** (recommended) and **5.1**, macOS
-  **zsh**, and **bash 4.2+**. Providers: **Anthropic** (default), **OpenAI**,
-  **Grok** (xAI), and **Gemini** (Google).
+- **Works today:** Windows PowerShell **7+** and **5.1**; macOS and
+  Linux with **zsh** or **bash 4.2+**. Providers: **Anthropic** (default),
+  **OpenAI**, **Grok** (xAI), and **Gemini** (Google).
 - **Release builds:** Windows zips are Authenticode-signed. macOS zips are
-  Developer ID-signed and notarized by Apple. All artifacts are GitHub-attested.
+  Developer ID-signed and notarized by Apple. Linux ships `.deb`/`.rpm`/Arch
+  packages and a static binary. All artifacts are GitHub-attested.
 
 ---
 
@@ -32,6 +32,15 @@ profile, and an API key. Use the platform guide for install/build details:
 
 - [Windows PowerShell](docs/WINDOWS.md)
 - [macOS zsh / Homebrew bash](docs/MACOS.md)
+- [Linux](docs/LINUX.md)
+
+On **Linux**, the quickest path is the installer: it picks your package manager
+(apt / dnf / zypper / pacman), or drops the static binary if there's none:
+
+```sh
+curl -fsSL https://github.com/martona/yo/releases/latest/download/install.sh | bash
+yo --setup
+```
 
 Release assets:
 
@@ -41,9 +50,13 @@ Release assets:
 | Windows Arm64 | [`yo-windows-arm64.zip`](https://github.com/martona/yo/releases/latest/download/yo-windows-arm64.zip) |
 | macOS Apple Silicon | [`yo-macos-arm64.zip`](https://github.com/martona/yo/releases/latest/download/yo-macos-arm64.zip) |
 | macOS Intel | [`yo-macos-amd64.zip`](https://github.com/martona/yo/releases/latest/download/yo-macos-amd64.zip) |
+| Linux x64 | [`yo-linux-amd64`](https://github.com/martona/yo/releases/latest/download/yo-linux-amd64) (also `.deb` / `.rpm` / `.pkg.tar.zst`) |
+| Linux Arm64 | [`yo-linux-arm64`](https://github.com/martona/yo/releases/latest/download/yo-linux-arm64) (also `.deb` / `.rpm` / `.pkg.tar.zst`) |
 
-Each zip contains the `yo` binary plus license/provenance files. Release assets
-also include [`SHA256SUMS.txt`](https://github.com/martona/yo/releases/latest/download/SHA256SUMS.txt)
+Each macOS/Windows zip contains the `yo` binary plus license/provenance files; the
+Linux packages bundle those under `/usr/share/doc/yo/`. Release assets also include
+[`install.sh`](https://github.com/martona/yo/releases/latest/download/install.sh),
+[`SHA256SUMS.txt`](https://github.com/martona/yo/releases/latest/download/SHA256SUMS.txt),
 and [`yo.cdx.json`](https://github.com/martona/yo/releases/latest/download/yo.cdx.json).
 
 Every release zip is attested by GitHub's build-provenance flow:
@@ -110,18 +123,6 @@ Windows Terminal we're limited to the viewport, not actual scrollback data. A
 multiplexer gives yo deeper resolved screen history when one is available. On macOS
 **tmux** is strongly recommended, otherwise no context is available to the LLM.
 
-### Questions with shell metacharacters
-
-Because `yo` hooks the Enter key (via PSReadLine on PowerShell, ZLE on zsh, and
-Readline on bash), you can ask questions containing `( ) < > & ; | $` without
-quoting them yourself:
-
-```sh
-yo what does (ps -ef | grep ssh) actually return?
-```
-
-The line is captured and safely quoted before the shell parses it.
-
 ---
 
 ## Configuration
@@ -174,7 +175,7 @@ yo[debug] <- command pending=true  "Get-CimInstance Win32_DiskDrive ..."
 `yo --init zsh`, or `yo --init bash`) is the only shell-specific part. The binary assembles the
 request (your text + optional screen context + session memory), calls the
 provider with **forced tool use** so the model must return a typed `command` or
-`chat` — never prose to descrape — and prints a shell-readable result. The
+`chat`, and prints a shell-readable result. The
 snippet prefills the command or prints the answer. Multi-step continuation rides
 `YO_STATE`; the binary itself stays stateless. Full design rationale:
 [docs/DESIGN-NOTES.md](docs/DESIGN-NOTES.md).
@@ -204,9 +205,8 @@ same license as yoshell, Bash, and Readline.
 It is an acknowledged **derivative work** of
 [yoshell (`pizlonator/yosh`)](https://github.com/pizlonator/yosh): it reuses yoshell's
 LLM system-prompt design and its tool/response (function-calling) contract and
-multi-step protocol, re-expressed as a standalone tool. It does not copy or fork
-yoshell's Bash/Readline C. The full derivative-work statement, the list of significant
-changes, and bundled third-party notices (e.g. gitleaks, MIT) are in
+multi-step protocol, re-expressed as a standalone tool. The full derivative-work statement, 
+the list of significant changes, and bundled third-party notices (e.g. gitleaks, MIT) are in
 [NOTICE](NOTICE).
 
 This is a personal, non-commercial project. Copyright (C) 2026 [Marton Anka](https://anka.me)

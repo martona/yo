@@ -1,6 +1,6 @@
 # yo configuration -- copy to ~/.yoconf and edit. All directives are optional;
 # lines starting with # are comments. yo re-reads this on every invocation.
-# (On Windows, ~ is %USERPROFILE%; on macOS/zsh, it is $HOME.)
+# (On Windows, ~ is %USERPROFILE%; on macOS/Linux, it is $HOME.)
 
 # Provider: "anthropic" (default), "openai", "grok" (xAI), or "gemini" (Google).
 # If omitted, yo infers it from whichever key env var is set

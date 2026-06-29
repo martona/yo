@@ -4,7 +4,9 @@ Manifests for distributing `yo` via package managers. Windows manifests consume
 the **signed per-arch zips** already published on GitHub Releases
 (`yo-windows-{amd64,arm64}.zip`) plus `SHA256SUMS.txt`; they do not rebuild
 anything. macOS release zips (`yo-macos-{arm64,amd64}.zip`) are Developer
-ID-signed and notarized in the release workflow.
+ID-signed and notarized in the release workflow. Linux native packages
+(`.deb`/`.rpm`/Arch) are built here by [`nfpm.yaml`](nfpm.yaml) in the release
+workflow.
 
 ---
 
@@ -73,6 +75,34 @@ The zip archives are submitted to Apple's notary service after the binary inside
 is Developer ID-signed with hardened runtime. Command-line zip archives are not
 stapled like `.app` bundles or `.pkg` installers, but the notary acceptance is
 bound to the submitted archive and Gatekeeper can validate the signed binary.
+
+---
+
+## Linux
+
+`yo` ships native Linux packages built in the release workflow by **nfpm**
+([`nfpm.yaml`](nfpm.yaml), driven by
+[`scripts/package_linux.sh`](../scripts/package_linux.sh)): one static binary in,
+three packages out -- `yo-linux-<arch>.{deb,rpm,pkg.tar.zst}` for `amd64` and `arm64`.
+Because yo is built `CGO_ENABLED=0`, the binary is fully static and the packages
+declare **no dependencies**. They are unsigned (integrity is via `SHA256SUMS.txt` +
+GitHub attestation, not repo GPG) -- Linux has no Authenticode/Developer ID
+equivalent. The release also publishes the bare static binary (`yo-linux-<arch>`) and
+a one-line installer ([`scripts/install.sh`](../scripts/install.sh)) at the stable
+`releases/latest/download/install.sh` URL.
+
+There is no hosted apt/dnf repo. Users install via the `curl ... | bash` installer
+(it picks apt/dnf/zypper/pacman, or drops the binary), a downloaded package,
+`go install`, or Homebrew on Linux. The install-test matrix in
+[`linux-ci.yml`](../.github/workflows/linux-ci.yml) verifies each package installs and
+runs in a clean distro container on every push.
+
+**Homebrew on Linux** uses the same tap formula (`brew install martona/tap/yo`); it
+works once the formula references the Linux release URLs -- a tap-repo change, not
+wired here yet.
+
+**Possible future:** an AUR `PKGBUILD` and/or a hosted repo. The `.pkg.tar.zst` is
+already a release asset, so an AUR `bin` package is mostly a `PKGBUILD` away.
 
 ---
 

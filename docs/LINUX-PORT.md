@@ -294,6 +294,21 @@ with a pipe-free `case "$list" in *PATTERN*)`.
   works once Linux assets exist **provided the tap formula references the Linux
   URLs** — a tap-repo-side follow-up to verify, not a change in this repo.
 
+#### Phase 6 Result (2026-06-28)
+
+Done. Added a one-line **`curl | bash` installer** (`scripts/install.sh`, modeled on
+`../clipp.net`'s but simpler — no glibc/musl check since yo is fully static, no deps):
+detects arch + package manager (apt/dnf/zypper/pacman) and installs the native
+package, else drops the static binary in `~/.local/bin`, then points at `yo --setup`.
+It's staged into the release as `install.sh` (stable
+`releases/latest/download/install.sh`). Wrote `docs/LINUX.md` (leads with the
+installer, then the per-distro package table, bare binary/`go install`/Linuxbrew,
+manual bash/zsh setup, build-from-source, attestation verify). Updated `README.md`
+(Status line + Linux guide link + `curl | bash` lead + Linux asset rows),
+`packaging/README.md` (Linux nfpm section), `yoconf.example`, and **`DESIGN-NOTES.md`**
+— including rewriting the stale "Bash as built" paragraph to the new accept-line + DSR
++ DEBUG-trap mechanism. **The Linux port is complete.**
+
 ### Phase 7 — Manual live verification on Linux
 
 Run the interactive checklist on real Linux bash (and a zsh pass): prefill →
@@ -358,7 +373,17 @@ green.
   binary's `runtime.GOOS` family as the fallback (`environmentLine` in
   `internal/llm/prompt.go`). Covered by `TestEnvironmentLineInPrompt`.
 
-**Status: implemented; needs a final interactive VM pass.**
+One last continuation-display fix: a continuation-step prefill is set *inside*
+`_yo_precmd`, after the echo-restore that used to live at its top, so its prompt
+rendered with echo still off and the prefilled command was invisible. Moved the
+echo-restore to `_yo_mark_prompt` (runs last in `PROMPT_COMMAND`, after any prefill),
+so echo is on before readline for both initial and continuation prefills.
+
+**Status: DONE — live-verified on macOS bash 5.3 and Linux bash 5.2.** Initial query,
+chat, OS-aware commands, multi-step continuation (chains, waits per step, reconciles
+edits), and bare-Enter/Ctrl-C cancel all work. (Unrelated, documented: without a
+tmux/zellij multiplexer the model gets only exit codes, not command output, so it may
+re-issue an output-less command — run yo inside a multiplexer for screen context.)
 
 ## Suggested order
 
