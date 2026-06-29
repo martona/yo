@@ -3,11 +3,11 @@
 ![yo in action](docs/yodemo.gif)
 
 Type `yo <find files over 1gb>` at your prompt. The request goes to an LLM, and the
-command it suggests is **prefilled onto your next prompt line**: ready to run,
+command it suggests is prefilled onto your next prompt line: ready to run,
 edit, or cancel. Ask a question instead and you get a printed answer. No command
 runs until you press Enter.
 
-`yo` is an acknowledged **GPLv3 derivative work** of
+`yo` is an acknowledged GPLv3 derivative work of
 [yoshell (`pizlonator/yosh`)](https://github.com/pizlonator/yosh). It is a standalone Go
 binary plus a small shell-integration snippet. See
 [License & provenance](#license--provenance).
@@ -34,8 +34,7 @@ profile, and an API key. Use the platform guide for install/build details:
 - [macOS zsh / Homebrew bash](docs/MACOS.md)
 - [Linux](docs/LINUX.md)
 
-On **Linux**, the quickest path is the installer: it picks your package manager
-(apt / dnf / zypper / pacman), or drops the static binary if there's none:
+On **Linux**, the easisest is the installer script:
 
 ```sh
 curl -fsSL https://github.com/martona/yo/releases/latest/download/install.sh | bash
@@ -73,12 +72,6 @@ Release workflow details and signing inputs are in
 ## Usage
 
 Just type `yo` followed by what you want, in plain language:
-
-```powershell
-yo list every pdf modified this week
-yo which processes are using the most memory
-yo set my git user.email to me@example.com
-```
 
 ```sh
 yo list every pdf modified this week
@@ -120,7 +113,7 @@ from the Windows console buffer. Outbound screen text is **secret-scrubbed**
 before it leaves your machine (see
 [Safety & privacy](#safety--privacy)). Context is immensely useful, but under
 Windows Terminal we're limited to the viewport, not actual scrollback data. A
-multiplexer gives yo deeper resolved screen history when one is available. On macOS
+multiplexer gives yo deeper resolved screen history when one is available. On macOS and Linux
 **tmux** is strongly recommended, otherwise no context is available to the LLM.
 
 ---

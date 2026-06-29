@@ -109,8 +109,7 @@ go run ./cmd/yo --init bash | bash -n
 
 ## Verify A Release Binary
 
-Linux artifacts are not code-signed (Linux has no equivalent of Authenticode /
-Developer ID), but every release asset is GitHub build-provenance attested and listed
+Every release asset is GitHub build-provenance attested and listed
 in `SHA256SUMS.txt`:
 
 ```sh

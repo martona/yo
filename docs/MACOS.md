@@ -2,7 +2,7 @@
 
 `yo` supports macOS with `zsh` and with a modern Homebrew-installed `bash`.
 Apple's system `/bin/bash` is 3.2 and is not supported; bash integration needs
-bash 4.2+ with Readline.
+bash 4.2+.
 
 ## Install With Homebrew
 
