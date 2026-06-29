@@ -10,6 +10,19 @@
 #
 # Requires bash 4.2+ with Readline. macOS /bin/bash 3.2 is not supported; install
 # a modern bash (for example via Homebrew) and source this from that shell.
+#
+# How it works (mirrors the zsh adapter, since bash has no `print -z`):
+#   * An accept-line hook rewrites a `yo <query>` line into a safely single-quoted
+#     `yo '<query>'` and lets readline ACCEPT it -- so the line you typed is preserved
+#     on screen and metacharacters never reach the parser, exactly like the zsh path.
+#   * The `yo` function then runs as an ordinary command: it calls the binary and
+#     prints the explanation/answer cleanly below your line.
+#   * For a command result it places the (editable) command on the NEXT prompt using
+#     the terminal's DSR reply (ESC[5n -> bound ESC[0n), the bash analogue of zsh's
+#     `print -z`. Kernel echo of the reply is suppressed so nothing leaks on screen.
+#   * Multi-step continuation is driven by PROMPT_COMMAND (the bash analogue of zsh's
+#     precmd): it detects the prefilled command ran, captures its exit code, and asks
+#     the binary for the next step.
 
 # Bail out for non-bash shells FIRST, using POSIX `[ ]` (not bash's `[[ ]]`): a shell
 # like dash (Linux /bin/sh) has no `[[` keyword, so a `[[`-based guard would fail open
@@ -31,8 +44,10 @@ if [[ -z ${YO_SESSION-} ]]; then
 fi
 
 _YO_ARMED=0
-_YO_LAST_PREFILL_SPACE=0
-_YO_FINISH_KEY='"\C-x\C-m"'
+_YO_SEEN_PROMPT=0
+_YO_RAN_SINCE_ARM=0
+_YO_HIST_BASELINE=''
+_YO_RESTORE_ECHO=0
 
 _yo_bin() {
     if [[ -n ${YO_BIN-} ]]; then
@@ -72,9 +87,25 @@ _yo_error() {
     fi
 }
 
+# Last interactive history event number, robust to HISTTIMEFORMAT (the timestamp
+# follows the number) -- used to detect whether a command actually ran.
+_yo_hist_num() {
+    history 1 2>/dev/null | command sed -n 's/^[[:space:]]*\([0-9][0-9]*\).*/\1/p'
+}
+
+# The exact last command line, no number/timestamp (fc -ln strips both) -- used for
+# the suggested-vs-executed reconciliation (YO_RAN).
+_yo_last_command() {
+    local c
+    c="$(fc -ln -1 2>/dev/null)" || return 0
+    printf '%s' "${c#"${c%%[![:space:]]*}"}"
+}
+
 _yo_clear_continuation() {
     _YO_ARMED=0
-    _YO_LAST_PREFILL_SPACE=0
+    _YO_SEEN_PROMPT=0
+    _YO_RAN_SINCE_ARM=0
+    _YO_HIST_BASELINE=''
     export YO_STATE=''
     export YO_RAN=''
 }
@@ -83,7 +114,32 @@ _yo_arm_continuation() {
     export YO_STATE="$1"
     export YO_RAN=''
     _YO_ARMED=1
-    _YO_LAST_PREFILL_SPACE="${2:-0}"
+    _YO_SEEN_PROMPT="${2:-0}"
+    _YO_RAN_SINCE_ARM=0
+    # A continuation step arms while already at a prompt (seen_prompt=1), so the
+    # history baseline must be taken now; an initial query (seen_prompt=0) takes it
+    # at the first prompt instead (see _yo_precmd).
+    if [[ $_YO_SEEN_PROMPT == 1 ]]; then
+        _YO_HIST_BASELINE="$(_yo_hist_num)"
+    fi
+}
+
+# Place an editable command on the NEXT prompt via the terminal's DSR reply, and
+# suppress the kernel's echo of that reply so it cannot leak as a stray ^[[0n during
+# the canonical-mode gap before readline raws the tty (echo is restored in _yo_precmd).
+# If readline is unavailable (non-interactive / no tty), fall back to printing it.
+_yo_prefill() {
+    local cmd="$1" esc
+    [[ -n $cmd ]] || return 0
+    esc=${cmd//\\/\\\\}
+    esc=${esc//\"/\\\"}
+    if bind '"\e[0n": "'"$esc"'"' 2>/dev/null; then
+        _YO_RESTORE_ECHO=1
+        stty -echo 2>/dev/null
+        printf '\e[5n'
+    else
+        printf '%s\n' "$cmd"
+    fi
 }
 
 _yo_clear_result_vars() {
@@ -109,21 +165,12 @@ _yo_eval_result() {
     eval "$result"
 }
 
-_yo_set_readline() {
-    READLINE_LINE="$1"
-    READLINE_POINT=${#READLINE_LINE}
-}
-
-_yo_clear_readline() {
-    _yo_set_readline ''
-}
-
-_yo_apply_result_to_readline() {
+_yo_apply_result() {
     local result="$1"
+    local seen_prompt="${2:-0}"
     local cmd
 
     if ! _yo_eval_result "$result"; then
-        _yo_clear_readline
         return 1
     fi
 
@@ -131,209 +178,48 @@ _yo_apply_result_to_readline() {
         command)
             [[ -n $YO_RESULT_EXPLANATION ]] && _yo_info "$YO_RESULT_EXPLANATION"
             cmd="$YO_RESULT_COMMAND"
-            if [[ $YO_RESULT_PREFILL_SPACE == 1 ]]; then
-                cmd=" $cmd"
-            fi
-            _yo_set_readline "$cmd"
+            [[ $YO_RESULT_PREFILL_SPACE == 1 ]] && cmd=" $cmd"
+            _yo_prefill "$cmd"
             if [[ $YO_RESULT_PENDING == 1 ]]; then
-                _yo_arm_continuation "$YO_RESULT_STATE" "$YO_RESULT_PREFILL_SPACE"
+                _yo_arm_continuation "$YO_RESULT_STATE" "$seen_prompt"
             else
                 _yo_clear_continuation
             fi
             ;;
         chat)
             [[ -n $YO_RESULT_RESPONSE ]] && _yo_info "$YO_RESULT_RESPONSE"
-            _yo_clear_readline
             _yo_clear_continuation
             ;;
         error)
             _yo_error "yo: $YO_RESULT_MESSAGE"
-            _yo_clear_readline
             _yo_clear_continuation
             ;;
         *)
             _yo_error "yo: unexpected response type '$YO_RESULT_TYPE'"
-            _yo_clear_readline
             _yo_clear_continuation
             return 1
             ;;
     esac
 }
 
-_yo_apply_result_to_stdout() {
-    local result="$1"
-
-    if ! _yo_eval_result "$result"; then
-        return 1
-    fi
-
-    case "$YO_RESULT_TYPE" in
-        command)
-            [[ -n $YO_RESULT_EXPLANATION ]] && _yo_info "$YO_RESULT_EXPLANATION"
-            printf '%s\n' "$YO_RESULT_COMMAND"
-            ;;
-        chat)
-            [[ -n $YO_RESULT_RESPONSE ]] && _yo_info "$YO_RESULT_RESPONSE"
-            ;;
-        error)
-            _yo_error "yo: $YO_RESULT_MESSAGE"
-            return 1
-            ;;
-        *)
-            _yo_error "yo: unexpected response type '$YO_RESULT_TYPE'"
-            return 1
-            ;;
-    esac
-}
-
-_yo_bind_finish() {
-    local action="$1"
-    if [[ ${_YO_TEST_NO_BIND-} == 1 ]]; then
-        _YO_TEST_FINISH="$action"
-        return 0
-    fi
-    bind "$_YO_FINISH_KEY: $action" 2>/dev/null || true
-}
-
-_yo_finish_accept() {
-    _yo_bind_finish accept-line
-}
-
-_yo_finish_redraw() {
-    _yo_bind_finish redraw-current-line
-}
-
-_yo_extract_query() {
-    local line="$1"
-
-    [[ $line =~ ^[[:space:]]*yo[[:space:]]+([^[:space:]].*)$ ]] || return 1
-    printf '%s\n' "${BASH_REMATCH[1]}"
-}
-
-_yo_history_record() {
-    local ran="$1"
-
-    if [[ $_YO_LAST_PREFILL_SPACE == 1 && $ran == ' '* ]]; then
-        return 0
-    fi
-    history -s -- "$ran" 2>/dev/null || true
-}
-
-_yo_run_pending_line() {
-    local ran="$1"
-    local sent="$ran"
-    local status result bin
-
-    if [[ -z ${ran//[[:space:]]/} ]]; then
-        _yo_clear_continuation
-        _yo_clear_readline
-        _yo_finish_accept
-        return 0
-    fi
-
-    if [[ $_YO_LAST_PREFILL_SPACE == 1 && $sent == ' '* ]]; then
-        sent="${sent# }"
-    fi
-
-    _yo_history_record "$ran"
-    printf '\n'
-    eval -- "$ran"
-    status=$?
-
-    if (( status == 130 )); then
-        _yo_clear_continuation
-        _yo_clear_readline
-        _yo_finish_redraw
-        return 130
-    fi
+_yo_invoke() {
+    local bin result
 
     bin="$(_yo_bin)" || {
-        _yo_error "yo: binary not found; cannot continue."
-        _yo_clear_continuation
-        _yo_clear_readline
-        _yo_finish_redraw
-        return "$status"
+        _yo_error "yo: binary not found; put it on PATH or set YO_BIN to its full path."
+        return 1
     }
 
-    _YO_ARMED=0
-    export YO_RAN="$sent"
-    result="$("$bin" --continue --exit "$status" --shell bash --output sh --width "$(_yo_width)")"
-    export YO_RAN=''
-    _yo_apply_result_to_readline "$result"
-    _yo_finish_redraw
-    return "$status"
-}
-
-_yo_readline_enter() {
-    local line="$READLINE_LINE"
-    local query result bin
-
-    if query="$(_yo_extract_query "$line")"; then
-        if [[ $query == -* ]]; then
-            _yo_finish_accept
-            return 0
-        fi
-
-        # Move off the readline prompt line before the binary runs. This executes
-        # inside a `bind -x` widget while readline still owns the display, so the
-        # binary's transient "thinking..." (stderr) and any chat output printed below
-        # would otherwise overwrite the prompt line. The continuation path
-        # (_yo_run_pending_line) already does this; the initial-query path must too.
-        printf '\n'
-        _yo_clear_continuation
-        bin="$(_yo_bin)" || {
-            _yo_error "yo: binary not found; put it on PATH or set YO_BIN to its full path."
-            _yo_clear_readline
-            _yo_finish_redraw
-            return 1
-        }
-
-        result="$("$bin" --shell bash --output sh --width "$(_yo_width)" "$query")"
-        _yo_apply_result_to_readline "$result"
-        _yo_finish_redraw
-        return 0
-    fi
-
-    if [[ $_YO_ARMED == 1 ]]; then
-        _yo_run_pending_line "$line"
-        return $?
-    fi
-
-    _yo_finish_accept
-}
-
-_yo_prompt_command() {
-    local status=$?
-
-    if [[ $_YO_ARMED == 1 ]]; then
-        _yo_clear_continuation
-    fi
-    return "$status"
-}
-
-_yo_install_prompt_command() {
-    [[ $- == *i* ]] || return 0
-
-    case ";${PROMPT_COMMAND-};" in
-        *";_yo_prompt_command;"*) ;;
-        ";") PROMPT_COMMAND="_yo_prompt_command" ;;
-        *) PROMPT_COMMAND="_yo_prompt_command; $PROMPT_COMMAND" ;;
-    esac
-}
-
-_yo_install_readline() {
-    [[ $- == *i* ]] || return 0
-
-    bind -x '"\C-x\C-y": _yo_readline_enter'
-    _yo_finish_accept
-    bind '"\C-m": "\C-x\C-y\C-x\C-m"'
-    bind '"\C-j": "\C-x\C-y\C-x\C-m"'
+    result="$("$bin" --shell bash --output sh --width "$(_yo_width)" "$@")"
+    _yo_apply_result "$result" 0
 }
 
 yo() {
-    local bin result
+    local bin
 
+    # A new yo query cancels any in-progress continuation.
     _yo_clear_continuation
+
     bin="$(_yo_bin)" || {
         _yo_error "yo: binary not found; put it on PATH or set YO_BIN to its full path."
         return 1
@@ -352,11 +238,106 @@ yo() {
         return $?
     fi
 
-    # Fallback for shells without an active Readline hook. It cannot prefill, so
-    # print the command instead of silently dropping it.
-    result="$("$bin" --shell bash --output sh --width "$(_yo_width)" "$@")"
-    _yo_apply_result_to_stdout "$result"
+    _yo_invoke "$@"
+}
+
+# Wrap a query in single quotes, escaping embedded single quotes as '\'' so the whole
+# query becomes ONE literal argument. (printf %q would also work but escapes with
+# backslashes; single quotes read better and match the zsh adapter's display.)
+_yo_single_quote() {
+    local s="$1" out="'"
+    while [[ $s == *\'* ]]; do
+        out+="${s%%\'*}'\\''"
+        s="${s#*\'}"
+    done
+    out+="$s'"
+    printf '%s' "$out"
+}
+
+# Accept-line hook: rewrite a raw `yo <query>` buffer to `yo '<query>'` before readline
+# parses it, so metacharacters ( ) < > & ; | $ survive. The bound finish key then
+# accept-lines it (preserving the typed line on screen). Non-`yo` lines are untouched.
+_yo_rewrite_buffer() {
+    local line="$READLINE_LINE" query q
+
+    [[ $line =~ ^[[:space:]]*yo[[:space:]]+([^[:space:]].*)$ ]] || return 0
+    query="${BASH_REMATCH[1]}"
+    # A query that starts with `-` is a debug-flag call (yo --dry-run ...): leave it
+    # for normal argument parsing.
+    [[ $query == -* ]] && return 0
+    # Already one single-quoted token (e.g. a line recalled from history): idempotent.
+    [[ $query == \'*\' ]] && return 0
+
+    q="$(_yo_single_quote "$query")"
+    READLINE_LINE="yo $q"
+    READLINE_POINT=${#READLINE_LINE}
+}
+
+# PROMPT_COMMAND hook (bash analogue of zsh precmd). Drives continuation and restores
+# echo suppressed by _yo_prefill. Must capture $? first and run before other prompt
+# commands (it is prepended), so the exit code is the just-run command's.
+_yo_precmd() {
+    local last_status=$?
+
+    if [[ $_YO_RESTORE_ECHO == 1 ]]; then
+        stty echo 2>/dev/null
+        _YO_RESTORE_ECHO=0
+    fi
+
+    [[ $_YO_ARMED == 1 ]] || return "$last_status"
+
+    # First prompt after arming an initial query: the command is now prefilled and
+    # waiting. Record the history baseline and wait for the user to run it.
+    if [[ $_YO_SEEN_PROMPT != 1 ]]; then
+        _YO_SEEN_PROMPT=1
+        _YO_HIST_BASELINE="$(_yo_hist_num)"
+        return "$last_status"
+    fi
+
+    # If no new command entered history since arming, the user declined (bare Enter,
+    # Ctrl-C, or cleared the line): cancel the sequence.
+    local now
+    now="$(_yo_hist_num)"
+    if [[ -n $_YO_HIST_BASELINE && $now == "$_YO_HIST_BASELINE" ]]; then
+        _yo_clear_continuation
+        return "$last_status"
+    fi
+
+    # A command ran: fetch the next step with its exit code and the executed command.
+    _YO_ARMED=0
+    local bin result ran
+    bin="$(_yo_bin)" || {
+        _yo_error "yo: binary not found; cannot continue."
+        _yo_clear_continuation
+        return "$last_status"
+    }
+    ran="$(_yo_last_command)"
+    export YO_RAN="$ran"
+    result="$("$bin" --continue --exit "$last_status" --shell bash --output sh --width "$(_yo_width)")"
+    export YO_RAN=''
+    _yo_apply_result "$result" 1
+    return "$last_status"
+}
+
+_yo_install_readline() {
+    [[ $- == *i* ]] || return 0
+
+    bind -x '"\C-x\C-y": _yo_rewrite_buffer' 2>/dev/null
+    bind '"\C-x\C-m": accept-line' 2>/dev/null
+    bind '"\C-m": "\C-x\C-y\C-x\C-m"' 2>/dev/null
+    bind '"\C-j": "\C-x\C-y\C-x\C-m"' 2>/dev/null
+}
+
+_yo_install_precmd() {
+    [[ $- == *i* ]] || return 0
+
+    # Prepend so _yo_precmd captures $? before any other prompt command resets it.
+    case ";${PROMPT_COMMAND-};" in
+        *";_yo_precmd;"*) ;;
+        ";") PROMPT_COMMAND="_yo_precmd" ;;
+        *) PROMPT_COMMAND="_yo_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;;
+    esac
 }
 
 _yo_install_readline
-_yo_install_prompt_command
+_yo_install_precmd

@@ -301,21 +301,39 @@ edit → run; chat; multi-step continuation; edited-command reconciliation; raw-
 capture with metacharacters; bare-Enter and Ctrl-C cancel; `yo why did that fail`
 inside tmux and zellij; no-multiplexer graceful degrade; `prefill_space true`.
 
-#### Interactive finding (2026-06-28): bash initial-query display corruption
+#### Interactive finding (2026-06-28): bash adapter rewritten to the zsh model
 
-First real Linux bash test showed `yo <query>` overwriting the prompt line with
-`thinking...` + model output (zsh was clean). **Latent bug, not introduced by the
-port** (only the dash guard changed in `shell/yo.bash` this session, inert under
-bash). Root cause: bash has no `print -z`, so the adapter calls the binary from
-inside the `bind -x` accept widget (`_yo_readline_enter`) while readline still owns
-the display — the binary's transient `thinking...` (stderr) and chat output land on
-the prompt line. The continuation path (`_yo_run_pending_line`) already guarded this
-with a leading `printf '\n'`; the initial-query path didn't. Fixed by adding the
-same `printf '\n'` before the binary call (after the `-*` flag bypass, so
-`yo --flag` lines still accept normally). zsh is unaffected (its widget only
-rewrites the buffer; the binary runs from the `yo` function as a normal command).
-Unit tests (`strings.Contains` on behavioral markers) still pass; needs an
-interactive VM confirmation.
+First real Linux bash test showed `yo <query>` corrupting the prompt line (binary's
+transient `thinking...` / chat output overwriting it). **Latent bug, not introduced
+by the port.** Root cause: bash has no `print -z`, so the original adapter did the
+binary call + prefill *in place* inside the `bind -x` widget (`READLINE_LINE` +
+`redraw-current-line`), which fights readline's redisplay whenever anything prints.
+(A blind `printf '\n'` patch was tried and reverted — it desynced readline and
+*erased* the typed line.)
+
+**Fix: ported the zsh model to bash** (proven first with a throwaway
+`scripts/spike-bash-prefill.sh`, validated interactively on the VM):
+
+- The accept-line hook rewrites `yo <q>` → `yo '<q>'` (correct single-quote escaper)
+  and **accepts** it, so the typed line is preserved and metacharacters are safe —
+  exactly like zsh. The `yo` function then runs as an ordinary command and prints
+  output cleanly below.
+- The editable command is placed on the next prompt via the terminal's **DSR**
+  reply (`ESC[5n` → bound `ESC[0n`), the bash analogue of `print -z`. The kernel's
+  echo of the reply (a stray `^[[0n` leak in the canonical-mode gap before readline)
+  is suppressed with `stty -echo`, restored in `PROMPT_COMMAND`.
+- Continuation is driven by `PROMPT_COMMAND` (bash analogue of zsh `precmd`): a
+  seen-prompt step records a history baseline; the next prompt detects whether a
+  command ran (history advanced) and forwards `--exit` + the executed command
+  (`YO_RAN` via `fc -ln -1`), or cancels (bare Enter / Ctrl-C / cleared line).
+
+Go tests rewritten for the new structure (rewrite/quote, chat vs command+arm,
+continuation fires vs cancels); whole suite + `bash -n` + `yo --init bash | bash -n`
+green. **Known limitation:** `prefill_space true` is incompatible with the
+history-based ran-detection on bash (a leading-space command is dropped by
+`HISTCONTROL=ignorespace`, so continuation can't see it ran) — a DEBUG-trap
+(preexec) capture would be needed for that combo; deferred. **Status: implemented;
+needs a final interactive VM pass (initial/chat/continuation/cancel/metachars).**
 
 ## Suggested order
 

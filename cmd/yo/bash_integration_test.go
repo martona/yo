@@ -85,7 +85,7 @@ func TestBashSnippetUnsupportedBashQuietlyNoops(t *testing.T) {
 
 	out := runBash(t, `
 source `+shellQuote(snippet)+`
-if declare -F _yo_readline_enter >/dev/null; then echo installed; fi
+if declare -F _yo_rewrite_buffer >/dev/null; then echo installed; fi
 echo after
 `)
 
@@ -111,14 +111,10 @@ func TestBashSnippetNonBashQuietlyNoops(t *testing.T) {
 	}
 }
 
-func TestBashSnippetReadlineQueryAndContinuation(t *testing.T) {
-	dir := t.TempDir()
-	snippet := writeBashSnippet(t, dir)
-	logPath := filepath.Join(dir, "fake.log")
-	cdDir := filepath.Join(dir, "next")
-	if err := os.MkdirAll(cdDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+// fakeBashYo writes a fake `yo` binary: it logs its args + relevant env, and emits a
+// command+pending result on the initial call, a terminal chat on the --continue call.
+func fakeBashYo(t *testing.T, dir, logPath string) string {
+	t.Helper()
 	fake := filepath.Join(dir, "fake-yo")
 	if err := os.WriteFile(fake, []byte(`#!/bin/sh
 is_continue=0
@@ -128,56 +124,75 @@ done
 {
   printf 'args:'
   for arg do printf '[%s]' "$arg"; done
-  printf '\nYO_RAN:%s\nYO_STATE:%s\nPWD:%s\nYO_BASH_TEST_VAR:%s\n' "$YO_RAN" "$YO_STATE" "$(pwd)" "$YO_BASH_TEST_VAR"
+  printf '\nYO_RAN:%s\nYO_STATE:%s\n' "$YO_RAN" "$YO_STATE"
 } >> "$YO_FAKE_LOG"
 if [ "$is_continue" = 1 ]; then
   cat <<'OUT'
 YO_RESULT_TYPE='chat'
-YO_RESULT_COMMAND=''
-YO_RESULT_EXPLANATION=''
 YO_RESULT_RESPONSE='done after continuation'
-YO_RESULT_MESSAGE=''
 YO_RESULT_PENDING='0'
-YO_RESULT_STATE=''
-YO_RESULT_PREFILL_SPACE='0'
 OUT
 else
   cat <<'OUT'
 YO_RESULT_TYPE='command'
 YO_RESULT_COMMAND='printf first'
 YO_RESULT_EXPLANATION='try this first'
-YO_RESULT_RESPONSE=''
-YO_RESULT_MESSAGE=''
 YO_RESULT_PENDING='1'
 YO_RESULT_STATE='state-1'
-YO_RESULT_PREFILL_SPACE='0'
 OUT
 fi
 `), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	return fake
+}
+
+// Initial query: the accept-line rewrite quotes metacharacters; the yo function emits
+// a command + pending and arms; the PROMPT_COMMAND-driven continuation then fires once
+// a command has run (history advanced) and forwards the exit code + executed command.
+func TestBashSnippetQueryAndContinuation(t *testing.T) {
+	dir := t.TempDir()
+	snippet := writeBashSnippet(t, dir)
+	logPath := filepath.Join(dir, "fake.log")
+	fake := fakeBashYo(t, dir, logPath)
 
 	out := runBash(t, `
-export _YO_TEST_NO_BIND=1
 export YO_BIN=`+shellQuote(fake)+`
 export YO_FAKE_LOG=`+shellQuote(logPath)+`
-export YO_TEST_CD=`+shellQuote(cdDir)+`
 source `+shellQuote(snippet)+`
-START_PWD=$PWD
+# Stub the interactive-only prefill and history probes so the state machine is
+# exercised deterministically without a real terminal.
+_yo_prefill() { printf 'PREFILL:<%s>\n' "$1"; }
+HN=500
+_yo_hist_num() { printf '%s' "$HN"; }
+_yo_last_command() { printf 'printf first'; }
+
+# Accept-line rewrite quotes a metacharacter-laden query to one literal arg.
 READLINE_LINE='yo what does (echo hi | wc -c) mean; echo bad'
-_yo_readline_enter
-printf 'prefill=<%s> armed=%s state=%s finish=%s\n' "$READLINE_LINE" "$_YO_ARMED" "$YO_STATE" "$_YO_TEST_FINISH"
-READLINE_LINE='printf first; export YO_BASH_TEST_VAR=ok; cd "$YO_TEST_CD"; false'
-_yo_readline_enter
-if [[ "$PWD" != "$START_PWD" ]]; then moved=yes; else moved=no; fi
-printf 'after=<%s> armed=%s state=%s finish=%s var=%s moved=%s\n' "$READLINE_LINE" "$_YO_ARMED" "$YO_STATE" "$_YO_TEST_FINISH" "$YO_BASH_TEST_VAR" "$moved"
+_yo_rewrite_buffer
+printf 'rewrite=<%s>\n' "$READLINE_LINE"
+
+# The yo function runs (as accept-line would run it) -> command + pending -> armed.
+_yo_invoke 'what does (echo hi | wc -c) mean; echo bad'
+printf 'invoke armed=%s state=%s seen=%s\n' "$_YO_ARMED" "$YO_STATE" "$_YO_SEEN_PROMPT"
+
+# Prompt cycle: first prompt records the baseline; then a command runs (history
+# advances) and the next prompt drives the continuation.
+_yo_precmd
+printf 'p1 seen=%s baseline=%s\n' "$_YO_SEEN_PROMPT" "$_YO_HIST_BASELINE"
+HN=501
+_yo_precmd
+printf 'p2 armed=%s\n' "$_YO_ARMED"
 `)
 
 	for _, want := range []string{
+		"rewrite=<yo 'what does (echo hi | wc -c) mean; echo bad'>\n",
 		"try this first\n",
-		"prefill=<printf first> armed=1 state=state-1 finish=redraw-current-line\n",
+		"PREFILL:<printf first>\n",
+		"invoke armed=1 state=state-1 seen=0\n",
+		"p1 seen=1 baseline=500\n",
 		"done after continuation\n",
-		"after=<> armed=0 state= finish=redraw-current-line var=ok moved=yes\n",
+		"p2 armed=0\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("bash output missing %q:\n%s", want, out)
@@ -192,11 +207,9 @@ printf 'after=<%s> armed=%s state=%s finish=%s var=%s moved=%s\n' "$READLINE_LIN
 	for _, want := range []string{
 		"args:[--shell][bash][--output][sh]",
 		"[what does (echo hi | wc -c) mean; echo bad]",
-		"args:[--continue][--exit][1][--shell][bash][--output][sh]",
-		`YO_RAN:printf first; export YO_BASH_TEST_VAR=ok; cd "$YO_TEST_CD"; false` + "\n",
+		"args:[--continue][--exit][0][--shell][bash][--output][sh]",
+		"YO_RAN:printf first\n",
 		"YO_STATE:state-1\n",
-		"PWD:",
-		"YO_BASH_TEST_VAR:ok\n",
 	} {
 		if !strings.Contains(log, want) {
 			t.Fatalf("fake binary log missing %q:\n%s", want, log)
@@ -204,37 +217,42 @@ printf 'after=<%s> armed=%s state=%s finish=%s var=%s moved=%s\n' "$READLINE_LIN
 	}
 }
 
+// A debug-flag line (yo --check ...) is left untouched by the rewrite; a chat result's
+// payload is never command-substituted (eval of single-quoted assignments is inert);
+// and a continuation with no command run is cancelled.
 func TestBashSnippetFlagsBypassAndSafeEval(t *testing.T) {
 	dir := t.TempDir()
 	snippet := writeBashSnippet(t, dir)
 	badPath := filepath.Join(dir, "bad")
 	result := strings.Join([]string{
 		"YO_RESULT_TYPE='chat'",
-		"YO_RESULT_COMMAND=''",
-		"YO_RESULT_EXPLANATION=''",
 		"YO_RESULT_RESPONSE='$(touch " + badPath + ")'",
-		"YO_RESULT_MESSAGE=''",
 		"YO_RESULT_PENDING='0'",
-		"YO_RESULT_STATE=''",
-		"YO_RESULT_PREFILL_SPACE='0'",
 	}, "\n")
 
 	out := runBash(t, `
-export _YO_TEST_NO_BIND=1
 source `+shellQuote(snippet)+`
+_yo_prefill() { :; }
+HN=700
+_yo_hist_num() { printf '%s' "$HN"; }
+
+# Debug-flag query: rewrite leaves it alone (handled by normal arg parsing).
 READLINE_LINE='yo --check | cat'
-_yo_readline_enter
-printf 'flag-line=<%s> finish=%s\n' "$READLINE_LINE" "$_YO_TEST_FINISH"
-_yo_apply_result_to_readline `+shellQuote(result)+`
+_yo_rewrite_buffer
+printf 'flag-line=<%s>\n' "$READLINE_LINE"
+
+# Chat payload with a command substitution must NOT execute.
+_yo_apply_result `+shellQuote(result)+` 0
 [[ ! -e `+shellQuote(badPath)+` ]] || exit 42
-_YO_ARMED=1
-YO_STATE=state-2
-_yo_prompt_command
+
+# Armed but no command runs before the next prompt -> cancel.
+_yo_arm_continuation 'state-2' 1
+_yo_precmd
 printf 'cancelled armed=%s state=%s\n' "$_YO_ARMED" "$YO_STATE"
 `)
 
 	for _, want := range []string{
-		"flag-line=<yo --check | cat> finish=accept-line\n",
+		"flag-line=<yo --check | cat>\n",
 		"$(touch " + badPath + ")\n",
 		"cancelled armed=0 state=\n",
 	} {
