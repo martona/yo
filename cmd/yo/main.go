@@ -1,6 +1,6 @@
 // Command yo turns a natural-language request into a PowerShell command (or a
 // chat answer) via an LLM, emitting exactly one JSON line on stdout for the
-// shell integration snippet to prefill or print. See docs/DESIGN-NOTES.md.
+// shell integration snippet to prefill or print.
 //
 // Multi-step tasks: a command may come back with "pending":true and a "state"
 // blob. The snippet stashes the state in $env:YO_STATE and, after the user runs

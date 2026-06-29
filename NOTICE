@@ -50,8 +50,8 @@ shell. Notable differences from yoshell:
   * Memory safety provided by the implementation language, instead of
     yoshell's Fil-C build.
 
-See docs/DESIGN-NOTES.md for the full rationale and the mapping between
-yoshell's mechanisms and yo's.
+The list above is the set of significant changes from yoshell, as required by
+the GPL.
 
 
 BUNDLED THIRD-PARTY COMPONENTS
@@ -67,5 +67,5 @@ compatible with GPLv3 and whose copyright/permission notices are retained:
     (internal/redact); its default ruleset is embedded in the binary.
 
 gitleaks pulls in further transitive Go dependencies under permissive
-licenses (MIT / BSD / Apache-2.0). A complete third-party license listing is
-a distribution-time task (see docs/DESIGN-NOTES.md, "Distribution & hardening").
+licenses (MIT / BSD / Apache-2.0). A complete third-party license listing ships
+with release builds as THIRD-PARTY-LICENSES.txt.

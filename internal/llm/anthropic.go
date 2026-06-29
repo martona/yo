@@ -136,7 +136,6 @@ func anthropicTools(profile CommandProfile) []anthropicTool {
 // we deliberately take the FIRST and ignore the rest (first-wins) rather than
 // re-prompting for exactly one as yoshell does -- the first tool call is reliably
 // the intended one, and a re-prompt would cost a round-trip for a rare case.
-// See DESIGN-NOTES "prompt handling" Q2.
 func parseAnthropic(body []byte, status int) (Result, error) {
 	var resp anthropicResponse
 	if err := json.Unmarshal(body, &resp); err != nil {

@@ -177,8 +177,7 @@ request (your text + optional screen context + session memory), calls the
 provider with **forced tool use** so the model must return a typed `command` or
 `chat`, and prints a shell-readable result. The
 snippet prefills the command or prints the answer. Multi-step continuation rides
-`YO_STATE`; the binary itself stays stateless. Full design rationale:
-[docs/DESIGN-NOTES.md](docs/DESIGN-NOTES.md).
+`YO_STATE`; the binary itself stays stateless.
 
 ## Command-line reference
 
