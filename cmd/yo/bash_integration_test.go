@@ -162,6 +162,9 @@ export YO_FAKE_LOG=`+shellQuote(logPath)+`
 source `+shellQuote(snippet)+`
 # Stub the interactive-only prefill so the state machine is exercised without a tty.
 _yo_prefill() { printf 'PREFILL:<%s>\n' "$1"; }
+# Install the DEBUG-trap preexec manually (the snippet's installers no-op in this
+# non-interactive shell). This is what flags that the user ran a command.
+trap '_yo_preexec' DEBUG
 
 # Accept-line rewrite quotes a metacharacter-laden query to one literal arg.
 READLINE_LINE='yo what does (echo hi | wc -c) mean; echo bad'
@@ -172,12 +175,15 @@ printf 'rewrite=<%s>\n' "$READLINE_LINE"
 _yo_invoke 'what does (echo hi | wc -c) mean; echo bad'
 printf 'invoke armed=%s state=%s seen=%s\n' "$_YO_ARMED" "$YO_STATE" "$_YO_SEEN_PROMPT"
 
-# Prompt cycle: first prompt marks seen; then the user submits the prefilled command
-# (the accept-line hook flags it ran), and the next prompt drives the continuation.
+# Prompt cycle: first prompt marks seen; then the user runs the prefilled command
+# (mark_prompt arms the DEBUG trap, the command trips it), and the next prompt drives
+# the continuation.
 _yo_precmd
 printf 'p1 seen=%s ran=%s\n' "$_YO_SEEN_PROMPT" "$_YO_RAN_SINCE_ARM"
+# Simulate the Enter macro: the accept widget runs as a command just before the real
+# one. The DEBUG trap must skip the widget and capture the actual command.
 READLINE_LINE='printf first'
-_yo_rewrite_buffer
+_yo_mark_prompt; _yo_rewrite_buffer; printf first
 printf 'submit ran=%s last=<%s>\n' "$_YO_RAN_SINCE_ARM" "$_YO_LAST_RAN"
 _yo_precmd
 printf 'p2 armed=%s\n' "$_YO_ARMED"
@@ -242,10 +248,9 @@ printf 'flag-line=<%s>\n' "$READLINE_LINE"
 _yo_apply_result `+shellQuote(result)+` 0
 [[ ! -e `+shellQuote(badPath)+` ]] || exit 42
 
-# Armed, but a bare Enter (empty line) submits nothing -> cancel on the next prompt.
+# Armed, but no command runs before the next prompt (bare Enter / Ctrl-C) -> the
+# DEBUG trap never flags a run, so the next prompt cancels the sequence.
 _yo_arm_continuation 'state-2' 1
-READLINE_LINE=''
-_yo_rewrite_buffer
 _yo_precmd
 printf 'cancelled armed=%s state=%s\n' "$_YO_ARMED" "$YO_STATE"
 `)

@@ -62,6 +62,7 @@ _YO_SEEN_PROMPT=0
 _YO_RAN_SINCE_ARM=0
 _YO_LAST_RAN=''
 _YO_RESTORE_ECHO=0
+_YO_AT_PROMPT=0
 
 _yo_bin() {
     if [[ -n ${YO_BIN-} ]]; then
@@ -249,38 +250,60 @@ _yo_single_quote() {
     printf '%s' "$out"
 }
 
-# Accept-line hook (fires on every Enter, before readline parses the line). Two jobs:
-#   1. Rewrite a raw `yo <query>` buffer to `yo '<query>'` so metacharacters
-#      ( ) < > & ; | $ survive; the bound finish key then accept-lines it, preserving
-#      the typed line on screen.
-#   2. Act as the bash `preexec`: if a continuation is armed and the user submits a
-#      non-empty NON-yo line, record that a command ran and what it was. This is a
-#      readline-level signal (the line about to be accepted), independent of shell
-#      history -- so it works even with prefill_space / HISTCONTROL=ignorespace, which
-#      would hide the command from history.
+# Accept-line hook: rewrite a raw `yo <query>` buffer to `yo '<query>'` before readline
+# parses it, so metacharacters ( ) < > & ; | $ survive; the bound finish key then
+# accept-lines it, preserving the typed line on screen. Non-`yo` lines are untouched.
+# (Only READLINE_LINE is changed here -- a bind-x widget reliably affects the buffer,
+# but its ordinary global-variable writes do NOT persist consistently when invoked via
+# a macro, which is why continuation's "did a command run" detection lives in a DEBUG
+# trap below, not here.)
 _yo_rewrite_buffer() {
     local line="$READLINE_LINE" query q
 
-    if [[ $line =~ ^[[:space:]]*yo[[:space:]]+([^[:space:]].*)$ ]]; then
-        query="${BASH_REMATCH[1]}"
-        # A query that starts with `-` is a debug-flag call (yo --dry-run ...): leave
-        # it for normal argument parsing.
-        [[ $query == -* ]] && return 0
-        # Already one single-quoted token (e.g. a line recalled from history): idempotent.
-        [[ $query == \'*\' ]] && return 0
-        q="$(_yo_single_quote "$query")"
-        READLINE_LINE="yo $q"
-        READLINE_POINT=${#READLINE_LINE}
-        return 0
-    fi
+    [[ $line =~ ^[[:space:]]*yo[[:space:]]+([^[:space:]].*)$ ]] || return 0
+    query="${BASH_REMATCH[1]}"
+    # A query that starts with `-` is a debug-flag call (yo --dry-run ...): leave it
+    # for normal argument parsing.
+    [[ $query == -* ]] && return 0
+    # Already one single-quoted token (e.g. a line recalled from history): idempotent.
+    [[ $query == \'*\' ]] && return 0
+    q="$(_yo_single_quote "$query")"
+    READLINE_LINE="yo $q"
+    READLINE_POINT=${#READLINE_LINE}
+}
 
-    if [[ $_YO_ARMED == 1 && $_YO_SEEN_PROMPT == 1 && $_YO_RAN_SINCE_ARM == 0 ]]; then
-        local trimmed="${line#"${line%%[![:space:]]*}"}"
-        if [[ -n $trimmed ]]; then
-            _YO_RAN_SINCE_ARM=1
-            _YO_LAST_RAN="$trimmed"
-        fi
+# preexec via the DEBUG trap: fires before each command runs. The first command after
+# a prompt (when _YO_AT_PROMPT is set by _yo_mark_prompt) is the user's interactive
+# command; if a continuation is armed, record that it ran and what it was. This ties
+# detection to ACTUAL command execution -- reliable across bash versions, and immune to
+# prefill_space / HISTCONTROL (unlike history) and to bind-x-in-macro quirks (unlike a
+# readline widget).
+_yo_preexec() {
+    [[ $_YO_AT_PROMPT == 1 ]] || return 0
+    # Skip yo's own machinery, never treat it as the user's command: the prompt-command
+    # functions, and _yo_rewrite_buffer -- the accept-line widget runs as a command via
+    # the Enter macro just before the real one, so without this it gets captured instead.
+    case "$BASH_COMMAND" in
+        _yo_precmd | _yo_mark_prompt | _yo_preexec* | _yo_rewrite_buffer) return 0 ;;
+    esac
+    _YO_AT_PROMPT=0
+    [[ $_YO_ARMED == 1 && $_YO_SEEN_PROMPT == 1 && $_YO_RAN_SINCE_ARM == 0 ]] || return 0
+    _YO_RAN_SINCE_ARM=1
+    _YO_LAST_RAN="$BASH_COMMAND"
+}
+
+# Runs LAST in PROMPT_COMMAND. Two jobs:
+#   - Restore echo suppressed by _yo_prefill. Doing it here (rather than at the top of
+#     _yo_precmd) means echo is on before readline for BOTH an initial-query prefill
+#     and a continuation-step prefill (the latter is set DURING _yo_precmd, after its
+#     top would have run), so the prefilled command renders on the next prompt.
+#   - Mark that the next command executed is the user's (for the DEBUG-trap preexec).
+_yo_mark_prompt() {
+    if [[ $_YO_RESTORE_ECHO == 1 ]]; then
+        stty echo 2>/dev/null
+        _YO_RESTORE_ECHO=0
     fi
+    _YO_AT_PROMPT=1
 }
 
 # PROMPT_COMMAND hook (bash analogue of zsh precmd). Drives continuation and restores
@@ -289,10 +312,11 @@ _yo_rewrite_buffer() {
 _yo_precmd() {
     local last_status=$?
 
-    if [[ $_YO_RESTORE_ECHO == 1 ]]; then
-        stty echo 2>/dev/null
-        _YO_RESTORE_ECHO=0
-    fi
+    # Consume the at-prompt flag here: if the user ran a command, the DEBUG trap
+    # already cleared it (and set _YO_RAN_SINCE_ARM); if they didn't (bare Enter,
+    # Ctrl-C), it is still set, and clearing it now stops this function's own commands
+    # from tripping the trap and faking a run.
+    _YO_AT_PROMPT=0
 
     [[ $_YO_ARMED == 1 ]] || return "$last_status"
 
@@ -338,13 +362,32 @@ _yo_install_readline() {
 _yo_install_precmd() {
     [[ $- == *i* ]] || return 0
 
-    # Prepend so _yo_precmd captures $? before any other prompt command resets it.
-    case ";${PROMPT_COMMAND-};" in
-        *";_yo_precmd;"*) ;;
-        ";") PROMPT_COMMAND="_yo_precmd" ;;
-        *) PROMPT_COMMAND="_yo_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;;
+    # _yo_precmd runs FIRST (captures $? before any other prompt command resets it);
+    # _yo_mark_prompt runs LAST (so the next command executed is seen as the user's by
+    # the DEBUG trap).
+    if [[ ";${PROMPT_COMMAND-};" != *";_yo_precmd;"* ]]; then
+        PROMPT_COMMAND="_yo_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND};_yo_mark_prompt"
+    fi
+}
+
+_yo_install_preexec() {
+    [[ $- == *i* ]] || return 0
+
+    local cur
+    cur="$(trap -p DEBUG 2>/dev/null)"
+    case "$cur" in
+        *_yo_preexec*) return 0 ;;
+        "") trap '_yo_preexec' DEBUG ;;
+        *)
+            # Preserve an existing DEBUG handler (e.g. bash-preexec): run ours, then it.
+            # `trap -p` prints: trap -- 'BODY' DEBUG
+            _YO_PREV_DEBUG="${cur#trap -- \'}"
+            _YO_PREV_DEBUG="${_YO_PREV_DEBUG%\' DEBUG}"
+            trap '_yo_preexec; eval "$_YO_PREV_DEBUG"' DEBUG
+            ;;
     esac
 }
 
 _yo_install_readline
 _yo_install_precmd
+_yo_install_preexec

@@ -333,14 +333,20 @@ green.
 
 #### Follow-up fixes after macOS bash 5.3 testing (2026-06-28)
 
-- **Continuation didn't fire with `prefill_space true`.** The first cut detected
-  "a command ran" via shell history, but a leading-space prefill is dropped by
-  `HISTCONTROL=ignorespace`, so `_yo_precmd` saw no change and silently cancelled.
-  Fixed by moving ran-detection into the accept-line hook itself (it fires on every
-  Enter): if a continuation is armed and a non-empty non-`yo` line is submitted, flag
-  it and capture it (`YO_RAN`). This is a readline-level signal independent of
-  history — so `prefill_space` works — and it's effectively bash `preexec` without a
-  DEBUG trap. The `history`/`fc` probes were removed entirely.
+- **Continuation ran-detection — three tries, landed on a DEBUG trap.** (1) Shell
+  history broke with `prefill_space` (`HISTCONTROL=ignorespace` hides the leading-space
+  command → silent cancel). (2) Doing it in the accept-line widget broke too, and
+  worse — *opposite symptoms per platform*: on Linux the continuation never fired, on
+  macOS it ran away and locked the shell. Root cause: a `bind -x` widget invoked via a
+  key macro (`\C-x\C-y\C-x\C-m`) reliably changes `READLINE_LINE` but its ordinary
+  global-variable writes do **not** persist consistently across bash builds. (3) Fixed
+  with a real **bash `preexec` via the `DEBUG` trap** (what zsh uses): the trap fires
+  on actual command execution, gated by an at-prompt flag set last in `PROMPT_COMMAND`
+  (`_yo_mark_prompt`) and cleared in `_yo_precmd`, and it skips yo's own prompt
+  functions. This ties detection to a command *actually running* — immune to history
+  settings, `prefill_space`, and macro quirks. An existing `DEBUG` trap (e.g.
+  bash-preexec) is preserved/chained. Validated in isolation (`scripts/spike-bash-
+  continuation.sh`) for both the run→continue and bare-Enter→cancel paths.
 - **Model assumed Linux on macOS** (suggested `lsblk`, `/media`). The prompts never
   stated the OS, so the model defaulted to Linux-isms. Fixed generally (all OSes, not
   just POSIX): every system prompt now carries a factual one-liner —
