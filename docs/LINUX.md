@@ -6,6 +6,16 @@ Linux distribution of the right architecture.
 
 ## Quick Install
 
+If you already use [Homebrew](https://brew.sh) (Linux on x86_64; arm64 is
+best-effort, as Homebrew itself is unsupported there):
+
+```sh
+brew install martona/tap/yo
+yo --setup
+```
+
+Otherwise, the installer script works on any distribution and architecture:
+
 ```sh
 curl -fsSL https://github.com/martona/yo/releases/latest/download/install.sh | bash
 yo --setup

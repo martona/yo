@@ -34,7 +34,14 @@ profile, and an API key. Use the platform guide for install/build details:
 - [macOS zsh / Homebrew bash](docs/MACOS.md)
 - [Linux](docs/LINUX.md)
 
-On **Linux**, the easisest is the installer script:
+On **Linux**, if you already use [Homebrew](https://brew.sh):
+
+```sh
+brew install martona/tap/yo
+yo --setup
+```
+
+Otherwise, the installer script is easiest:
 
 ```sh
 curl -fsSL https://github.com/martona/yo/releases/latest/download/install.sh | bash
