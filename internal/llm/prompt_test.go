@@ -30,6 +30,48 @@ func TestDetectCommandProfile(t *testing.T) {
 	}
 }
 
+func TestEnvironmentLineInPrompt(t *testing.T) {
+	// The system prompt must state the user's OS and shell so the model picks
+	// OS-appropriate tools; precise versions come from the shell integration via
+	// YO_OS / YO_SHELL_VERSION, with the OS family as the fallback.
+	t.Run("uses YO_OS and YO_SHELL_VERSION when set", func(t *testing.T) {
+		t.Setenv("YO_OS", "macOS 14.5")
+		t.Setenv("YO_SHELL_VERSION", "5.9")
+		got := environmentLine(posixProfile("zsh"))
+		for _, want := range []string{"macOS 14.5", "zsh 5.9"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("environment line missing %q: %s", want, got)
+			}
+		}
+		if strings.Contains(got, "lsblk") || strings.Contains(got, "diskutil") {
+			t.Errorf("environment line should not enumerate per-OS tools: %s", got)
+		}
+	})
+
+	t.Run("falls back to the OS family without YO_OS", func(t *testing.T) {
+		t.Setenv("YO_OS", "")
+		t.Setenv("YO_SHELL_VERSION", "")
+		got := environmentLine(posixProfile("bash"))
+		if !strings.Contains(got, osLabel()) {
+			t.Errorf("environment line missing OS fallback %q: %s", osLabel(), got)
+		}
+		// No version supplied -> bare shell family, no trailing version number.
+		if !strings.Contains(got, "shell bash") {
+			t.Errorf("environment line missing bare shell family: %s", got)
+		}
+	})
+
+	// It is woven into the assembled system prompt, not just a helper.
+	t.Setenv("YO_OS", "Ubuntu 24.04 LTS")
+	t.Setenv("YO_SHELL_VERSION", "5.2.21")
+	if p := anthropicSystemPrompt("m", posixProfile("bash")); !strings.Contains(p, "Ubuntu 24.04 LTS") || !strings.Contains(p, "bash 5.2.21") {
+		t.Errorf("anthropic prompt missing environment line:\n%s", p)
+	}
+	if p := openaiSystemPrompt("m", "openai", posixProfile("bash")); !strings.Contains(p, "Ubuntu 24.04 LTS") || !strings.Contains(p, "bash 5.2.21") {
+		t.Errorf("openai prompt missing environment line:\n%s", p)
+	}
+}
+
 func TestPromptProfilesSplitPowerShellAndPOSIX(t *testing.T) {
 	ps := powerShellProfile()
 	posix := posixProfile("zsh")

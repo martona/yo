@@ -10,6 +10,7 @@ package llm
 
 import (
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -81,12 +82,30 @@ const diagnostics = "DIAGNOSTICS: When the user asks why something failed or wha
 
 // anthropicSystemPrompt is intentionally minimal — Anthropic's tool descriptions
 // carry the command-vs-chat routing on their own.
+// environmentLine states the user's OS and shell, with precise versions when the
+// shell integration supplied them (YO_OS / YO_SHELL_VERSION) -- falling back to the
+// OS family from the binary. Stating the environment is enough for the model to pick
+// OS-appropriate tools; we deliberately do not enumerate per-OS commands.
+func environmentLine(profile CommandProfile) string {
+	osStr := strings.TrimSpace(os.Getenv("YO_OS"))
+	if osStr == "" {
+		osStr = osLabel()
+	}
+	shell := profile.Shell
+	if v := strings.TrimSpace(os.Getenv("YO_SHELL_VERSION")); v != "" {
+		shell = shell + " " + v
+	}
+	return fmt.Sprintf("The user's environment: %s, shell %s.", osStr, shell)
+}
+
 func anthropicSystemPrompt(model string, profile CommandProfile) string {
 	return fmt.Sprintf(`You are powered by %s (provider: anthropic).
 
 You are a command assistant for a %s. The user is at an
 interactive prompt; any command you generate is prefilled at their prompt for
 them to review, edit, or run -- nothing executes until they press Enter.
+
+%s
 
 %s Prefer the simplest, most reusable command that answers the request --
 ideally one worth remembering -- not an intricate one-liner built to compute the
@@ -103,7 +122,7 @@ will be rendered on a terminal.
 
 %s
 
-%s`, model, profile.PromptDescription, profile.CommandGuidance, multiStep(profile), diagnostics)
+%s`, model, profile.PromptDescription, environmentLine(profile), profile.CommandGuidance, multiStep(profile), diagnostics)
 }
 
 // openaiSystemPrompt biases hard toward commands with worked examples, because
@@ -115,6 +134,8 @@ func openaiSystemPrompt(model, provider string, profile CommandProfile) string {
 You are a command assistant for a %s. The user is at an interactive prompt; any
 command you generate is prefilled for them to review, edit, or run -- nothing
 executes until they press Enter.
+
+%s
 
 %s Prefer the simplest, most reusable command that answers the request -- ideally
 one worth remembering -- not an intricate one-liner built to compute the exact
@@ -136,7 +157,7 @@ machine, you MUST use the command tool. Examples that MUST use command:
 
 %s
 
-%s`, model, provider, profile.PromptDescription, profile.CommandGuidance, formatExamples(profile.OpenAIExamples), multiStep(profile), diagnostics)
+%s`, model, provider, profile.PromptDescription, environmentLine(profile), profile.CommandGuidance, formatExamples(profile.OpenAIExamples), multiStep(profile), diagnostics)
 }
 
 func formatExamples(examples []CommandExample) string {

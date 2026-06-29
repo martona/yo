@@ -329,11 +329,30 @@ binary call + prefill *in place* inside the `bind -x` widget (`READLINE_LINE` +
 
 Go tests rewritten for the new structure (rewrite/quote, chat vs command+arm,
 continuation fires vs cancels); whole suite + `bash -n` + `yo --init bash | bash -n`
-green. **Known limitation:** `prefill_space true` is incompatible with the
-history-based ran-detection on bash (a leading-space command is dropped by
-`HISTCONTROL=ignorespace`, so continuation can't see it ran) — a DEBUG-trap
-(preexec) capture would be needed for that combo; deferred. **Status: implemented;
-needs a final interactive VM pass (initial/chat/continuation/cancel/metachars).**
+green.
+
+#### Follow-up fixes after macOS bash 5.3 testing (2026-06-28)
+
+- **Continuation didn't fire with `prefill_space true`.** The first cut detected
+  "a command ran" via shell history, but a leading-space prefill is dropped by
+  `HISTCONTROL=ignorespace`, so `_yo_precmd` saw no change and silently cancelled.
+  Fixed by moving ran-detection into the accept-line hook itself (it fires on every
+  Enter): if a continuation is armed and a non-empty non-`yo` line is submitted, flag
+  it and capture it (`YO_RAN`). This is a readline-level signal independent of
+  history — so `prefill_space` works — and it's effectively bash `preexec` without a
+  DEBUG trap. The `history`/`fc` probes were removed entirely.
+- **Model assumed Linux on macOS** (suggested `lsblk`, `/media`). The prompts never
+  stated the OS, so the model defaulted to Linux-isms. Fixed generally (all OSes, not
+  just POSIX): every system prompt now carries a factual one-liner —
+  `The user's environment: <OS+version>, shell <shell+version>.` — and that's it; no
+  per-OS command enumeration (the model picks the right tools from the OS/shell). The
+  precise versions are supplied natively by each shell integration via `YO_OS` and
+  `YO_SHELL_VERSION` (bash/zsh: `sw_vers`/`/etc/os-release`/`uname` + `$BASH_VERSION`/
+  `$ZSH_VERSION`; PowerShell: `OSVersion.VersionString` + `$PSVersionTable`), with the
+  binary's `runtime.GOOS` family as the fallback (`environmentLine` in
+  `internal/llm/prompt.go`). Covered by `TestEnvironmentLineInPrompt`.
+
+**Status: implemented; needs a final interactive VM pass.**
 
 ## Suggested order
 

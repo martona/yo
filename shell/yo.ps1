@@ -37,6 +37,13 @@ if (-not $env:YO_SESSION) {
     $env:YO_SESSION = "$PID-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
 }
 
+# OS + shell version for the model's environment context (the binary falls back to
+# its own OS family if these are unset). OSVersion.VersionString works on 5.1 and 7+.
+if (-not $env:YO_OS) {
+    try { $env:YO_OS = [System.Environment]::OSVersion.VersionString } catch {}
+}
+try { $env:YO_SHELL_VERSION = $PSVersionTable.PSVersion.ToString() } catch {}
+
 function Get-YoBin {
     if ($env:YO_BIN) { return $env:YO_BIN }
     if (Get-Command yo.exe -ErrorAction SilentlyContinue) { return 'yo.exe' }

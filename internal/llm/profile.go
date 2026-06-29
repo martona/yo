@@ -91,6 +91,23 @@ func powerShellProfile() CommandProfile {
 	}
 }
 
+// osLabel is a human-friendly name for the OS the binary (and thus the user) runs on.
+// It is the fallback when the shell integration did not supply a precise YO_OS.
+func osLabel() string { return osLabelFor(runtime.GOOS) }
+
+func osLabelFor(goos string) string {
+	switch goos {
+	case "darwin":
+		return "macOS"
+	case "linux":
+		return "Linux"
+	case "windows":
+		return "Windows"
+	default:
+		return goos
+	}
+}
+
 func posixProfile(shell string) CommandProfile {
 	if shell == "" {
 		shell = "POSIX-style shell"

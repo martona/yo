@@ -23,6 +23,20 @@ if [[ -z ${YO_SESSION-} ]]; then
     export YO_SESSION="${$}-${RANDOM}${RANDOM}"
 fi
 
+# OS + shell version for the model's environment context (the binary falls back to
+# its own OS family if these are unset). OS is computed once; the shell version is
+# free from $ZSH_VERSION. macOS -> sw_vers, Linux -> /etc/os-release, else uname.
+if [[ -z ${YO_OS-} ]]; then
+    if (( ${+commands[sw_vers]} )); then
+        export YO_OS="macOS $(sw_vers -productVersion 2>/dev/null)"
+    elif [[ -r /etc/os-release ]]; then
+        export YO_OS="$(. /etc/os-release 2>/dev/null && printf '%s' "${PRETTY_NAME:-${NAME:-Linux}}")"
+    else
+        export YO_OS="$(uname -sr 2>/dev/null)"
+    fi
+fi
+export YO_SHELL_VERSION="$ZSH_VERSION"
+
 typeset -g _YO_ARMED=0
 typeset -g _YO_SEEN_PROMPT=0
 typeset -g _YO_RAN_SINCE_ARM=0
