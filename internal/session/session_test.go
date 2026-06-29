@@ -30,15 +30,17 @@ func TestClear(t *testing.T) {
 	if len(Recent(id)) == 0 {
 		t.Fatalf("expected a stored exchange before Clear")
 	}
-	if err := Clear(); err != nil {
+	if n, err := Clear(); err != nil {
 		t.Fatalf("Clear: %v", err)
+	} else if n != 1 {
+		t.Fatalf("expected Clear to remove 1 session, got %d", n)
 	}
 	if got := Recent(id); len(got) != 0 {
 		t.Fatalf("expected no exchanges after Clear, got %d", len(got))
 	}
 	// Clear with no store present is a no-op.
-	if err := Clear(); err != nil {
-		t.Fatalf("Clear on an empty store should be nil, got %v", err)
+	if n, err := Clear(); err != nil || n != 0 {
+		t.Fatalf("Clear on an empty store should be (0, nil), got (%d, %v)", n, err)
 	}
 }
 

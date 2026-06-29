@@ -165,7 +165,7 @@ func (s *setupRunner) removeStateFiles() {
 		if err := tokens.Remove(); err != nil {
 			s.warn("could not remove the token usage file: " + err.Error())
 		}
-		if err := session.Clear(); err != nil {
+		if _, err := session.Clear(); err != nil {
 			s.warn("could not remove the session cache: " + err.Error())
 		}
 		s.good("removed yo's saved state")

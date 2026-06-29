@@ -137,24 +137,28 @@ func Path() string {
 	return filepath.Join(os.TempDir(), "yo")
 }
 
-// Clear removes all session files (and the directory if that leaves it empty).
-// No-op (returns nil) when the store does not exist. For `yo --uninstall`.
-func Clear() error {
+// Clear removes all session files (and the directory if that leaves it empty),
+// returning how many session stores were removed. No-op (0, nil) when the store
+// does not exist. Backs `yo --forget` and `yo --uninstall`.
+func Clear() (int, error) {
 	d := Path()
 	entries, err := os.ReadDir(d)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return 0, nil
 		}
-		return err
+		return 0, err
 	}
+	removed := 0
 	for _, e := range entries {
 		if !e.IsDir() && strings.HasPrefix(e.Name(), "sess-") {
-			_ = os.Remove(filepath.Join(d, e.Name()))
+			if os.Remove(filepath.Join(d, e.Name())) == nil {
+				removed++
+			}
 		}
 	}
 	_ = os.Remove(d) // best-effort: only succeeds if it's now empty
-	return nil
+	return removed, nil
 }
 
 func sessionPath(d, id string) string {

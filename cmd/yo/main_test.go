@@ -6,6 +6,7 @@ import (
 	"flag"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -124,6 +125,39 @@ func TestDryRunUsesZshPromptProfile(t *testing.T) {
 		if strings.Contains(body, leak) {
 			t.Fatalf("dry-run output leaked PowerShell prompt %q:\n%s", leak, body)
 		}
+	}
+}
+
+// TestForgetClearsSessionMemory runs `yo --forget` in a subprocess pointed at a
+// throwaway temp dir, seeded with a session file, and asserts the file is gone and
+// the count is reported. --forget needs no key or network.
+func TestForgetClearsSessionMemory(t *testing.T) {
+	tmp := t.TempDir()
+	store := filepath.Join(tmp, "yo")
+	if err := os.MkdirAll(store, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	seed := filepath.Join(store, "sess-demo.json")
+	if err := os.WriteFile(seed, []byte(`[{"q":"x","t":"chat","r":"y"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcessMain", "--", "--forget")
+	cmd.Env = append(os.Environ(),
+		"YO_HELPER_MAIN=1",
+		"TMPDIR="+tmp, // os.TempDir() on macOS/Linux
+		"TMP="+tmp,    // and on Windows
+		"TEMP="+tmp,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("yo --forget failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "forgot 1 saved session") {
+		t.Fatalf("unexpected --forget output:\n%s", out)
+	}
+	if _, err := os.Stat(seed); !os.IsNotExist(err) {
+		t.Fatalf("session file should be gone, stat err = %v", err)
 	}
 }
 

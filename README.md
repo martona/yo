@@ -184,6 +184,7 @@ snippet prefills the command or prints the answer. Multi-step continuation rides
 | `yo --init bash`       | Print the integration snippet (for your `~/.bashrc`). |
 | `yo --check`           | Validate config + key (no network). |
 | `yo --config`          | Show the resolved configuration. |
+| `yo --forget`          | Forget all saved session memory. |
 | `yo --dry-run "<q>"`   | Print the assembled API request (no key/network). |
 | `yo --version` / `--help` | Version / help. |
 

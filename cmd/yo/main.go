@@ -73,6 +73,7 @@ func main() {
 	versionFlag := flag.Bool("version", false, "print the version and exit")
 	tokensFlag := flag.Bool("tokens", false, "show token usage (this session and all-time) and exit")
 	tokensResetFlag := flag.Bool("tokens-reset", false, "reset the all-time token counter and exit")
+	forgetFlag := flag.Bool("forget", false, "forget all saved session memory (cross-call history) and exit")
 	configFlag := flag.Bool("config", false, "show the resolved configuration and exit")
 	initFlag := flag.String("init", "", "print the shell integration for <shell> (powershell, zsh, or bash) and exit")
 	setupFlag := flag.Bool("setup", false, "install or repair the shell integration (interactive) and exit")
@@ -108,6 +109,9 @@ func main() {
 	case *tokensResetFlag:
 		tokens.ResetGlobal()
 		fmt.Println("yo: global token counter reset.")
+		return
+	case *forgetFlag:
+		runForget()
 		return
 	case *setupFlag || *uninstallFlag:
 		runSetup(*uninstallFlag)
@@ -410,6 +414,7 @@ Usage:
   yo <natural language>     Get a command prefilled at your prompt, or a chat answer.
   yo --tokens               Show token usage (this session and all-time).
   yo --tokens-reset         Reset the all-time token counter.
+  yo --forget               Forget all saved session memory (e.g. before a demo).
   yo --setup                Install/repair the integration: profile, shell checks, key.
   yo --check                Validate config, key, and shell integration health.
   yo --config               Show the resolved configuration.
@@ -507,6 +512,27 @@ func runConfig() {
 	}
 	fmt.Printf("provider: %s\nmodel:    %s\nkey:      %s\nmemory:   %s\ndebug:    %s\nprefill:  %s\nyoconf:   %s\n",
 		cfg.Provider, cfg.Model, key, mem, dbgState, psState, yoconf)
+}
+
+// runForget wipes all saved session memory -- the cross-call history yo folds into
+// each query (internal/session). Handy before a demo, screen-share, or recording so
+// prior asks don't leak into context. Token tallies, config, and shell integration
+// are untouched (no network, no key). Note: this is yo's own memory, not your shell's
+// command history, which the shell owns.
+func runForget() {
+	n, err := session.Clear()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "yo: could not forget session memory:", err)
+		os.Exit(1)
+	}
+	switch n {
+	case 0:
+		fmt.Println("yo: no saved session memory to forget.")
+	case 1:
+		fmt.Println("yo: forgot 1 saved session.")
+	default:
+		fmt.Printf("yo: forgot %d saved sessions.\n", n)
+	}
 }
 
 // runTokens prints token usage for the current shell session and all-time, as a
