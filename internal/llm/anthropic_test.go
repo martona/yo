@@ -45,6 +45,14 @@ func TestParseAnthropic(t *testing.T) {
 			want:   Result{Type: "command", Command: "Get-Location", Explanation: "x"},
 		},
 		{
+			// The model committed to chat, changed its mind mid-response, and
+			// appended a command block; the command is the intent (resolveToolCalls).
+			name:   "chat then command: command wins",
+			body:   `{"type":"message","content":[{"type":"tool_use","name":"chat","input":{"response":"Prefilling that now."}},{"type":"tool_use","name":"command","input":{"command":"df -h","explanation":"disk usage"}}]}`,
+			status: 200,
+			want:   Result{Type: "command", Command: "df -h", Explanation: "disk usage"},
+		},
+		{
 			name:    "api error body",
 			body:    `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`,
 			status:  401,

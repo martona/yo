@@ -165,8 +165,9 @@ func chatTools(profile CommandProfile) []chatTool {
 	}
 }
 
-// parseChat maps a Chat Completions reply (or an error body) to a Result. It takes
-// the first tool_call of the first choice and parses its arguments string.
+// parseChat maps a Chat Completions reply (or an error body) to a Result. It
+// collects the tool_calls across choices in order; selection (command wins over
+// chat -- see resolveToolCalls) is shared across providers.
 func parseChat(body []byte, status int) (Result, error) {
 	var resp chatResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
@@ -183,29 +184,11 @@ func parseChat(body []byte, status int) (Result, error) {
 		inTok, outTok = resp.Usage.PromptTokens, resp.Usage.CompletionTokens
 	}
 
+	var calls []toolCall
 	for _, choice := range resp.Choices {
 		for _, tc := range choice.Message.ToolCalls {
-			switch tc.Function.Name {
-			case toolCommand:
-				var in struct {
-					Command     string `json:"command"`
-					Explanation string `json:"explanation"`
-					Pending     bool   `json:"pending"`
-				}
-				if err := json.Unmarshal([]byte(tc.Function.Arguments), &in); err != nil {
-					return Result{}, fmt.Errorf("bad command tool input: %w", err)
-				}
-				return Result{Type: "command", Command: in.Command, Explanation: in.Explanation, Pending: in.Pending, InputTokens: inTok, OutputTokens: outTok}, nil
-			case toolChat:
-				var in struct {
-					Response string `json:"response"`
-				}
-				if err := json.Unmarshal([]byte(tc.Function.Arguments), &in); err != nil {
-					return Result{}, fmt.Errorf("bad chat tool input: %w", err)
-				}
-				return Result{Type: "chat", Response: in.Response, InputTokens: inTok, OutputTokens: outTok}, nil
-			}
+			calls = append(calls, toolCall{name: tc.Function.Name, args: json.RawMessage(tc.Function.Arguments)})
 		}
 	}
-	return Result{}, fmt.Errorf("model returned no command or chat")
+	return resolveToolCalls(calls, inTok, outTok)
 }

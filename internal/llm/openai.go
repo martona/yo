@@ -137,8 +137,9 @@ func openaiTools(profile CommandProfile) []openaiTool {
 }
 
 // parseOpenAI maps a Responses API reply (or an error body) to a Result. It
-// scans output[] for the first function_call (skipping reasoning/message items)
-// and parses its arguments string.
+// collects the function_call items from output[] (skipping reasoning/message
+// items); selection (command wins over chat -- see resolveToolCalls) is shared
+// across providers.
 func parseOpenAI(body []byte, status int) (Result, error) {
 	var resp openaiResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
@@ -156,30 +157,11 @@ func parseOpenAI(body []byte, status int) (Result, error) {
 		inTok, outTok = resp.Usage.InputTokens, resp.Usage.OutputTokens
 	}
 
+	var calls []toolCall
 	for _, item := range resp.Output {
-		if item.Type != "function_call" {
-			continue
-		}
-		switch item.Name {
-		case toolCommand:
-			var in struct {
-				Command     string `json:"command"`
-				Explanation string `json:"explanation"`
-				Pending     bool   `json:"pending"`
-			}
-			if err := json.Unmarshal([]byte(item.Arguments), &in); err != nil {
-				return Result{}, fmt.Errorf("bad command tool input: %w", err)
-			}
-			return Result{Type: "command", Command: in.Command, Explanation: in.Explanation, Pending: in.Pending, InputTokens: inTok, OutputTokens: outTok}, nil
-		case toolChat:
-			var in struct {
-				Response string `json:"response"`
-			}
-			if err := json.Unmarshal([]byte(item.Arguments), &in); err != nil {
-				return Result{}, fmt.Errorf("bad chat tool input: %w", err)
-			}
-			return Result{Type: "chat", Response: in.Response, InputTokens: inTok, OutputTokens: outTok}, nil
+		if item.Type == "function_call" {
+			calls = append(calls, toolCall{name: item.Name, args: json.RawMessage(item.Arguments)})
 		}
 	}
-	return Result{}, fmt.Errorf("model returned no command or chat")
+	return resolveToolCalls(calls, inTok, outTok)
 }

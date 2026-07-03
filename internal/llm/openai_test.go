@@ -39,6 +39,14 @@ func TestParseOpenAI(t *testing.T) {
 			want:   Result{Type: "command", Command: "ls", Explanation: "x", InputTokens: 123, OutputTokens: 45},
 		},
 		{
+			// Mind-change response: chat first, then the command it now intends
+			// to prefill; the command is the intent (resolveToolCalls).
+			name:   "chat then command: command wins",
+			body:   `{"output":[{"type":"function_call","name":"chat","arguments":"{\"response\":\"Prefilling that now.\"}"},{"type":"function_call","name":"command","arguments":"{\"command\":\"df -h\",\"explanation\":\"disk usage\"}"}],"error":null}`,
+			status: 200,
+			want:   Result{Type: "command", Command: "df -h", Explanation: "disk usage"},
+		},
+		{
 			name:    "error body (non-null)",
 			body:    `{"error":{"message":"invalid api key"}}`,
 			status:  401,

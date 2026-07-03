@@ -132,10 +132,8 @@ func anthropicTools(profile CommandProfile) []anthropicTool {
 }
 
 // parseAnthropic maps the API response (or an error body) to a Result. With
-// tool_choice:any the model can occasionally emit more than one tool_use block;
-// we deliberately take the FIRST and ignore the rest (first-wins) rather than
-// re-prompting for exactly one as yoshell does -- the first tool call is reliably
-// the intended one, and a re-prompt would cost a round-trip for a rare case.
+// tool_choice:any the model can emit more than one tool_use block; selection
+// (command wins over chat -- see resolveToolCalls) is shared across providers.
 func parseAnthropic(body []byte, status int) (Result, error) {
 	var resp anthropicResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
@@ -153,30 +151,11 @@ func parseAnthropic(body []byte, status int) (Result, error) {
 		inTok, outTok = resp.Usage.InputTokens, resp.Usage.OutputTokens
 	}
 
+	var calls []toolCall
 	for _, b := range resp.Content {
-		if b.Type != "tool_use" {
-			continue
-		}
-		switch b.Name {
-		case toolCommand:
-			var in struct {
-				Command     string `json:"command"`
-				Explanation string `json:"explanation"`
-				Pending     bool   `json:"pending"`
-			}
-			if err := json.Unmarshal(b.Input, &in); err != nil {
-				return Result{}, fmt.Errorf("bad command tool input: %w", err)
-			}
-			return Result{Type: "command", Command: in.Command, Explanation: in.Explanation, Pending: in.Pending, InputTokens: inTok, OutputTokens: outTok}, nil
-		case toolChat:
-			var in struct {
-				Response string `json:"response"`
-			}
-			if err := json.Unmarshal(b.Input, &in); err != nil {
-				return Result{}, fmt.Errorf("bad chat tool input: %w", err)
-			}
-			return Result{Type: "chat", Response: in.Response, InputTokens: inTok, OutputTokens: outTok}, nil
+		if b.Type == "tool_use" {
+			calls = append(calls, toolCall{name: b.Name, args: b.Input})
 		}
 	}
-	return Result{}, fmt.Errorf("model returned no command or chat")
+	return resolveToolCalls(calls, inTok, outTok)
 }

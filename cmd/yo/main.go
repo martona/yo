@@ -85,6 +85,7 @@ func main() {
 	displayWidth = *width
 	noThinking = *noThinkingFlag
 	outputFormat = strings.ToLower(strings.TrimSpace(*outputFlag))
+	llm.Debugf = dbg // parse diagnostics (e.g. dropped tool calls); dbg gates on debugOn
 	if *shellFlag != "" {
 		os.Setenv("YO_SHELL", *shellFlag)
 	}
