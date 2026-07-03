@@ -302,6 +302,10 @@ func runContinue(exitCode int, dryRun bool) {
 }
 
 // generate runs the provider call with a thinking indicator and Ctrl-C cancel.
+// A command tool call with an empty command field is an unambiguous model
+// error (observed in the wild: the command text leaks into the explanation as
+// stray tool-call markup); re-prompt once with a corrective note, and fail if
+// the retry comes back empty too.
 func generate(p llm.Provider, query string) (llm.Result, error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -310,10 +314,25 @@ func generate(p llm.Provider, query string) (llm.Result, error) {
 		fmt.Fprint(os.Stderr, "thinking...")
 	}
 	res, err := p.Generate(ctx, query)
+	if err == nil && emptyCommand(res) {
+		dbg("-> retry: command tool call with empty command field")
+		inTok, outTok := res.InputTokens, res.OutputTokens
+		res, err = p.Generate(ctx, llm.WithEmptyCommandRetry(query))
+		res.InputTokens += inTok // bill both calls
+		res.OutputTokens += outTok
+		if err == nil && emptyCommand(res) {
+			err = fmt.Errorf("model returned an empty command, even after a retry")
+		}
+	}
 	if !noThinking {
 		fmt.Fprint(os.Stderr, "\r            \r") // clear the transient indicator
 	}
 	return res, err
+}
+
+// emptyCommand reports whether res is a command result with nothing to prefill.
+func emptyCommand(res llm.Result) bool {
+	return res.Type == "command" && strings.TrimSpace(res.Command) == ""
 }
 
 // dbg writes a one-line trace to stderr (never stdout -- that's the JSON contract)

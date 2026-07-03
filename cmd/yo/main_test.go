@@ -3,6 +3,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"os"
 	"os/exec"
@@ -39,6 +40,78 @@ func TestEncodeResultNoHTMLEscape(t *testing.T) {
 	if !strings.Contains(out, "&") || !strings.Contains(out, ">") {
 		t.Fatalf("expected literal & and >: %s", out)
 	}
+}
+
+// scriptedProvider returns canned results in order, recording each query.
+type scriptedProvider struct {
+	queries []string
+	results []llm.Result
+}
+
+func (s *scriptedProvider) Generate(_ context.Context, query string) (llm.Result, error) {
+	s.queries = append(s.queries, query)
+	return s.results[len(s.queries)-1], nil
+}
+
+func (s *scriptedProvider) Request(string) ([]byte, error) { return nil, nil }
+
+// A command tool call with an empty command field is a known model failure mode
+// (the command text leaks into the explanation as stray tool-call markup);
+// generate must re-prompt once with a corrective note rather than prefill nothing.
+func TestGenerateRetriesEmptyCommand(t *testing.T) {
+	noThinking = true
+	t.Cleanup(func() { noThinking = false })
+
+	t.Run("re-prompts once and uses the retry result", func(t *testing.T) {
+		p := &scriptedProvider{results: []llm.Result{
+			{Type: "command", Command: "", Explanation: "leaked markup", InputTokens: 10, OutputTokens: 1},
+			{Type: "command", Command: "df -h", Explanation: "disk usage", InputTokens: 20, OutputTokens: 2},
+		}}
+		res, err := generate(p, "how full is the disk")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(p.queries) != 2 {
+			t.Fatalf("expected 2 provider calls, got %d", len(p.queries))
+		}
+		if !strings.HasPrefix(p.queries[1], "how full is the disk") || !strings.Contains(p.queries[1], "[retry]") {
+			t.Errorf("retry query should be the original plus a corrective note:\n%s", p.queries[1])
+		}
+		if res.Command != "df -h" {
+			t.Errorf("expected the retry's command, got %q", res.Command)
+		}
+		if res.InputTokens != 30 || res.OutputTokens != 3 {
+			t.Errorf("usage should cover both calls, got in=%d out=%d", res.InputTokens, res.OutputTokens)
+		}
+	})
+
+	t.Run("errors when the retry is empty too", func(t *testing.T) {
+		p := &scriptedProvider{results: []llm.Result{
+			{Type: "command", Command: ""},
+			{Type: "command", Command: "   "}, // whitespace-only is equally unusable
+		}}
+		if _, err := generate(p, "q"); err == nil {
+			t.Fatal("expected an error after two empty commands")
+		}
+		if len(p.queries) != 2 {
+			t.Fatalf("expected exactly 2 provider calls (one retry), got %d", len(p.queries))
+		}
+	})
+
+	t.Run("does not retry good commands or chat", func(t *testing.T) {
+		for _, res := range []llm.Result{
+			{Type: "command", Command: "ls"},
+			{Type: "chat", Response: "hello"},
+		} {
+			p := &scriptedProvider{results: []llm.Result{res}}
+			if _, err := generate(p, "q"); err != nil {
+				t.Fatal(err)
+			}
+			if len(p.queries) != 1 {
+				t.Fatalf("%s result should not trigger a retry, got %d calls", res.Type, len(p.queries))
+			}
+		}
+	})
 }
 
 func TestShellQuote(t *testing.T) {

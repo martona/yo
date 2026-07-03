@@ -186,6 +186,20 @@ func WithTerminalContext(query, scrollback string) string {
 		"prefilling.\n\n```\n%s\n```\n\n[request] %s", scrollback, query)
 }
 
+// WithEmptyCommandRetry appends a corrective note to the query for the one
+// unambiguous model failure yo re-prompts on: a command tool call whose
+// "command" field came back empty (typically the command text leaked into the
+// explanation instead). Plain text appended to the same query -> provider
+// agnostic, mirroring yoshell's explanation retry. No attempt is made to
+// salvage the leaked text from the malformed response.
+func WithEmptyCommandRetry(query string) string {
+	return query + "\n\n[retry] Your previous response called the command tool " +
+		"but left the \"command\" field empty. Respond again to the request " +
+		"above, placing the complete runnable command in the \"command\" field " +
+		"itself -- not in the explanation -- along with a brief explanation and " +
+		"the appropriate pending flag."
+}
+
 // WithSessionMemory prepends a compact history of recent yo exchanges to the query,
 // framed as background continuity (what the user has been doing this session) so the
 // model uses it only to resolve references, not as the current ask. Returns the
