@@ -1,24 +1,29 @@
 name: Publish to winget
 
-# Auto-opens a version-bump PR to microsoft/winget-pkgs when a release is published,
-# using the community winget-releaser action (wingetcreate under the hood, which
-# PRESERVES the existing manifest structure -- the portable/zip seed in
-# packaging/winget/ must already exist in winget-pkgs first; see packaging/README.md).
+# Auto-opens a version-bump PR to microsoft/winget-pkgs when a release goes live.
+# Same dual trigger as the Homebrew tap bump (homebrew-tap.yml): the `published`
+# release event -- which fires when a staged draft is pushed live, the way releases
+# are actually cut here -- plus a workflow_dispatch fallback for re-runs/backfills.
+#
+# Runs Microsoft's wingetcreate directly (no third-party action): it downloads the
+# release zips, computes hashes, rewrites the manifests PRESERVING the portable/zip
+# structure seeded from packaging/winget/, pushes a branch to the token account's
+# fork of microsoft/winget-pkgs, and opens the upstream PR. The PR link is written
+# to the job summary. wingetcreate is fetched from Microsoft's `latest` alias on
+# purpose: it has to track winget-pkgs' evolving validation, so pinning would rot.
 #
 # Requires a repo secret WINGET_TOKEN: a classic PAT with `public_repo` scope whose
 # account has a fork of microsoft/winget-pkgs. Until that's set, this no-ops cleanly.
-#
-# NB: verify the action's current owner/version/inputs against its README before
-# relying on it -- the project has been renamed/transferred over time.
 
 on:
   release:
-    types: [released]   # published, non-draft, non-prerelease
+    types: [published]
   workflow_dispatch:
     inputs:
       release-tag:
-        description: 'Existing release tag to publish (e.g. v0.1.1)'
+        description: "Existing release tag to publish to winget, e.g. v0.3.4"
         required: true
+        type: string
 
 permissions:
   contents: read
@@ -42,9 +47,36 @@ jobs:
 
       - name: Submit to winget-pkgs
         if: steps.guard.outputs.ok == 'true'
-        uses: vedantmgoyal9/winget-releaser@v2
-        with:
-          identifier: martona.yo
-          installers-regex: '^yo-windows-(amd64|arm64)\.zip$'
-          release-tag: ${{ github.event.release.tag_name || inputs.release-tag }}
-          token: ${{ secrets.WINGET_TOKEN }}
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release-tag }}
+        run: |
+          if (-not $env:RELEASE_TAG) {
+            Write-Host "::error::release tag is required"
+            exit 1
+          }
+          $tag = $env:RELEASE_TAG
+          $version = $tag -replace '^v', ''
+          $urls = @(
+            "https://github.com/martona/yo/releases/download/$tag/yo-windows-amd64.zip",
+            "https://github.com/martona/yo/releases/download/$tag/yo-windows-arm64.zip"
+          )
+
+          Invoke-WebRequest -Uri https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+
+          # Capture output for the PR link while still streaming it to the log.
+          $output = & .\wingetcreate.exe update martona.yo --version $version --urls $urls --submit --token $env:WINGET_TOKEN 2>&1 | ForEach-Object { "$_" }
+          $output | Write-Host
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::wingetcreate failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+
+          $pr = ($output | Select-String -Pattern 'https://github\.com/microsoft/winget-pkgs/pull/\d+' | Select-Object -First 1)
+          if ($pr) {
+            $link = $pr.Matches[0].Value
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## winget submission`n`nmartona.yo $version submitted: $link"
+          } else {
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## winget submission`n`nmartona.yo $version submitted, but no PR link was found in the wingetcreate output -- check the step log."
+          }

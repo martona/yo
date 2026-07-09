@@ -26,16 +26,18 @@ test, SmartScreen) and a moderator merges. The binaries being Authenticode-signe
 what clears the reputation checks — no notability judgment involved.
 
 **2. Ongoing (auto-bump).** [`.github/workflows/winget.yml`](../.github/workflows/winget.yml)
-opens the version-bump PR on each published release. To enable it:
+opens the version-bump PR on each published release (the same dual trigger as the
+Homebrew tap bump: the `published` release event, so pushing a staged draft live
+fires it, plus a `workflow_dispatch` fallback). To enable it:
 - Add a repo secret **`WINGET_TOKEN`**: a classic PAT with `public_repo` scope whose
   account has a fork of `microsoft/winget-pkgs`.
 - Until that secret exists the workflow no-ops cleanly (it won't fail your releases).
-- **Verify** the `vedantmgoyal9/winget-releaser` action's current owner/version/inputs
-  against its README before relying on it — it has been renamed/transferred over time.
 
-The action uses `wingetcreate update`, which preserves the portable/zip structure from
-the seed and only swaps version + URLs + hashes — so the seed in step 1 defines the
-shape once.
+The workflow runs Microsoft's `wingetcreate update` directly (no third-party action),
+which preserves the portable/zip structure from the seed and only swaps version +
+URLs + hashes — so the seed in step 1 defines the shape once. The opened PR's link is
+written to the workflow run's job summary (it is also always findable as
+`microsoft/winget-pkgs` PRs authored by the token's account).
 
 **Uninstall.** A portable/zip package has no uninstall hook: `winget uninstall
 martona.yo` removes the `yo` command alias but leaves yo's token-usage file at
