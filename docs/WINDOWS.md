@@ -3,6 +3,22 @@
 `yo` supports Windows PowerShell 5.1 and PowerShell 7+. PowerShell 7+ is
 recommended.
 
+## Install With winget
+
+```powershell
+winget install martona.yo
+yo --setup
+```
+
+winget installs `yo` as a portable command on your user `PATH` (open a fresh
+PowerShell window if `yo` is not found in the one already open). `yo --setup`
+upgrades PSReadLine for your account if needed, adds the shell integration to
+`$PROFILE`, and configures an API key. Open a fresh window, then run:
+
+```powershell
+yo --check
+```
+
 ## Install From Release
 
 Download the right zip:

@@ -28,25 +28,17 @@ binary plus a small shell-integration snippet. See
 ## Install
 
 You need the `yo` binary on your machine, the integration line in your shell
-profile, and an API key. Use the platform guide for install/build details:
+profile, and an API key. The quickest install per platform:
 
-- [Windows PowerShell](docs/WINDOWS.md)
-- [macOS zsh / Homebrew bash](docs/MACOS.md)
-- [Linux](docs/LINUX.md)
+| Platform | Quickest install | Full guide |
+|----------|------------------|------------|
+| Windows | `winget install martona.yo` | [Windows PowerShell](docs/WINDOWS.md) |
+| macOS | `brew install martona/tap/yo` | [macOS zsh / Homebrew bash](docs/MACOS.md) |
+| Linux | `curl -fsSL https://github.com/martona/yo/releases/latest/download/install.sh \| bash` | [Linux](docs/LINUX.md) |
 
-On **Linux**, if you already use [Homebrew](https://brew.sh):
-
-```sh
-brew install martona/tap/yo
-yo --setup
-```
-
-Otherwise, the installer script is easiest:
-
-```sh
-curl -fsSL https://github.com/martona/yo/releases/latest/download/install.sh | bash
-yo --setup
-```
+Then run `yo --setup` once: it wires the shell integration into your profile and
+configures an API key. The platform guides cover manual and package installs,
+building from source, and binary verification.
 
 Release assets:
 
