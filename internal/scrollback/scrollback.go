@@ -18,10 +18,14 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/martona/yo/internal/proc"
 )
 
 var commandOutput = func(ctx context.Context, name string, args ...string) ([]byte, error) {
-	return exec.CommandContext(ctx, name, args...).Output()
+	cmd := exec.CommandContext(ctx, name, args...)
+	proc.NoConsole(cmd) // capture children must not disturb the console they capture
+	return cmd.Output()
 }
 
 // Capture returns recent terminal output, stripped of ANSI escapes and trimmed to
@@ -62,7 +66,9 @@ func captureZellij() string {
 	// zellij action dump-screen --full --path <PATH>: writes the resolved screen
 	// plus scrollback to PATH (the path is a --path option, not positional). We
 	// omit --ansi, so the dump is plain text (already collapsed to final cells).
-	if err := exec.CommandContext(ctx, "zellij", "action", "dump-screen", "--full", "--path", path).Run(); err != nil {
+	dump := exec.CommandContext(ctx, "zellij", "action", "dump-screen", "--full", "--path", path)
+	proc.NoConsole(dump) // capture children must not disturb the console they capture
+	if err := dump.Run(); err != nil {
 		return ""
 	}
 

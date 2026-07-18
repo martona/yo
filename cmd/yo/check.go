@@ -14,6 +14,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/martona/yo/internal/config"
+	"github.com/martona/yo/internal/proc"
 )
 
 type checkResult struct {
@@ -149,6 +150,7 @@ func inspectPowerShell(host string) (map[string]string, error) {
 		"Write-Output ('policy=' + $pol)",
 	}, "; ")
 	cmd := exec.CommandContext(ctx, host, "-NoProfile", "-Command", script)
+	proc.NoConsole(cmd) // a console-attached pwsh child can flip our console's output mode
 	out, err := cmd.Output()
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -202,7 +204,9 @@ func bashCheckResult() checkResult {
 func shellVersion(name string, args ...string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, name, args...).Output()
+	cmd := exec.CommandContext(ctx, name, args...)
+	proc.NoConsole(cmd) // on Windows, `bash` may be the WSL stub, which corrupts console modes
+	out, err := cmd.Output()
 	if err != nil || ctx.Err() != nil {
 		return "version unknown"
 	}

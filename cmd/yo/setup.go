@@ -238,7 +238,10 @@ func (s *setupRunner) runPowerShellShellSetup(exe string, uninstall bool) error 
 	if uninstall {
 		cmd.Env = append(cmd.Env, "YO_SETUP_UNINSTALL=1")
 	}
-	if err := cmd.Run(); err != nil {
+	restore := saveConsoleMode() // an interactive pwsh child can leave the console mode flipped
+	err = cmd.Run()
+	restore()
+	if err != nil {
 		return fmt.Errorf("PowerShell setup failed: %w", err)
 	}
 	return nil
